@@ -1,0 +1,37 @@
+From 597969c16b8408444ff1ae3b849020af3fe92a0e Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 20 Feb 2015 18:29:16 -0500
+Subject: [PATCH]     tracing: correct the nr_page calculation in remote tlb
+ shootdown
+
+    Add parenthesis to make the calculation correct.
+
+Signed-off-by: Zi Yan <zi.yan@cs.rutgers.edu>
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Cc: Ingo Molnar <mingo@redhat.com>
+Cc: "H. Peter Anvin" <hpa@zytor.com>
+Cc: x86@kernel.org
+Cc: Dave Hansen <dave.hansen@linux.intel.com>
+Cc: Rik van Riel <riel@redhat.com>
+Cc: Mel Gorman <mgorman@suse.de>
+Cc: Jeremiah Mahler <jmmahler@gmail.com>
+Cc: linux-kernel@vger.kernel.org
+---
+ arch/x86/mm/tlb.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 3250f23..90b924a 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -117,7 +117,7 @@ static void flush_tlb_func(void *info)
+ 		} else {
+ 			unsigned long addr;
+ 			unsigned long nr_pages =
+-				f->flush_end - f->flush_start / PAGE_SIZE;
++				(f->flush_end - f->flush_start) / PAGE_SIZE;
+ 			addr = f->flush_start;
+ 			while (addr < f->flush_end) {
+ 				__flush_tlb_single(addr);
+-- 
+2.1.4

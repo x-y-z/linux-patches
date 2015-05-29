@@ -1,0 +1,48 @@
+From a07b38186bc6cad58f51b5e5e3303f0bcc375c8e Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 20 Feb 2015 17:07:54 -0500
+Subject: [PATCH]     tracing: Allow larger than PAGE_SIZE filter pattern
+
+    Large applications(e.g. Cassandra) may have hundreds of threads
+    running. To trace all those threads, larger size(>PAGE_SIZE) of
+    filter pattern is needed.
+
+Signed-off-by: Zi Yan <zi.yan@cs.rutgers.edu>
+---
+ kernel/trace/trace_events.c | 9 +++------
+ 1 file changed, 3 insertions(+), 6 deletions(-)
+
+diff --git a/kernel/trace/trace_events.c b/kernel/trace/trace_events.c
+index db54dda..8347c48 100644
+--- a/kernel/trace/trace_events.c
++++ b/kernel/trace/trace_events.c
+@@ -1092,15 +1092,12 @@ event_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
+ 	char *buf;
+ 	int err = -ENODEV;
+
+-	if (cnt >= PAGE_SIZE)
+-		return -EINVAL;
+-
+-	buf = (char *)__get_free_page(GFP_TEMPORARY);
++	buf = (char *)alloc_pages_exact(cnt, GFP_TEMPORARY);
+ 	if (!buf)
+ 		return -ENOMEM;
+
+ 	if (copy_from_user(buf, ubuf, cnt)) {
+-		free_page((unsigned long) buf);
++		free_pages_exact((unsigned long) buf, cnt);
+ 		return -EFAULT;
+ 	}
+ 	buf[cnt] = '\0';
+@@ -1111,7 +1108,7 @@ event_filter_write(struct file *filp, const char __user *ubuf, size_t cnt,
+ 		err = apply_event_filter(file, buf);
+ 	mutex_unlock(&event_mutex);
+
+-	free_page((unsigned long) buf);
++	free_pages_exact((unsigned long) buf, cnt);
+ 	if (err < 0)
+ 		return err;
+
+--
+2.1.4
+
