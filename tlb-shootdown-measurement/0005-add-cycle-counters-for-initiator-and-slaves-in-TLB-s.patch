@@ -1,0 +1,167 @@
+From 5f4216392f15d99ac9685d87662d80b13b1336bc Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 24 Feb 2015 11:31:11 -0500
+Subject: [PATCH 5/5] add cycle counters for initiator and slaves in TLB
+ shootdown
+
+---
+ arch/x86/mm/tlb.c          | 96 +++++++++++++++++++++++++++++++++++++++++++++-
+ include/trace/events/tlb.h |  2 +-
+ 2 files changed, 95 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index fbd12c5..f7c4301 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -104,6 +104,10 @@ EXPORT_SYMBOL_GPL(leave_mm);
+ static void flush_tlb_func(void *info)
+ {
+ 	struct flush_tlb_info *f = info;
++    unsigned cycles_high, cycles_low;
++    unsigned cycles_high1, cycles_low1;
++    unsigned long start;
++    unsigned long end;
+ 
+ 	inc_irq_stat(irq_tlb_count);
+ 
+@@ -115,18 +119,71 @@ static void flush_tlb_func(void *info)
+ 	count_vm_tlb_event(NR_TLB_REMOTE_FLUSH_RECEIVED);
+ 	if (this_cpu_read(cpu_tlbstate.state) == TLBSTATE_OK) {
+ 		if (f->flush_end == TLB_FLUSH_ALL) {
++			asm volatile
++				( "CPUID\n\t"
++				  "RDTSC\n\t"
++				  "mov %%edx, %0\n\t"
++				  "mov %%eax, %1\n\t"
++				  :
++				  "=r" (cycles_high), "=r" (cycles_low)
++				  ::
++				  "rax", "rbx", "rcx", "rdx"
++				);
++
+ 			local_flush_tlb();
+-			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, TLB_FLUSH_ALL, 0, 0);
++
++			asm volatile
++				( "RDTSCP\n\t"
++				  "mov %%edx, %0\n\t"
++				  "mov %%eax, %1\n\t"
++				  "CPUID\n\t"
++				  :
++				  "=r" (cycles_high1), "=r" (cycles_low1)
++				  ::
++				  "rax", "rbx", "rcx", "rdx"
++				);
++
++			start = ((uint64_t)cycles_high <<32 | cycles_low);
++			end = ((uint64_t)cycles_high1 <<32 | cycles_low1);
++
++			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, TLB_FLUSH_ALL, 0, end-start);
+ 		} else {
+ 			unsigned long addr;
+ 			unsigned long nr_pages =
+ 				(f->flush_end - f->flush_start) / PAGE_SIZE;
+ 			addr = f->flush_start;
++			asm volatile
++				( "CPUID\n\t"
++				  "RDTSC\n\t"
++				  "mov %%edx, %0\n\t"
++				  "mov %%eax, %1\n\t"
++				  :
++				  "=r" (cycles_high), "=r" (cycles_low)
++				  ::
++				  "rax", "rbx", "rcx", "rdx"
++				);
++
+ 			while (addr < f->flush_end) {
+ 				__flush_tlb_single(addr);
+ 				addr += PAGE_SIZE;
+ 			}
+-			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, nr_pages, f->flush_start, 0);
++
++			asm volatile
++				( "RDTSCP\n\t"
++				  "mov %%edx, %0\n\t"
++				  "mov %%eax, %1\n\t"
++				  "CPUID\n\t"
++				  :
++				  "=r" (cycles_high1), "=r" (cycles_low1)
++				  ::
++				  "rax", "rbx", "rcx", "rdx"
++				);
++
++			start = ((uint64_t)cycles_high <<32 | cycles_low);
++			end = ((uint64_t)cycles_high1 <<32 | cycles_low1);
++
++			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, nr_pages, f->flush_start,
++                            end - start);
+ 		}
+ 	} else
+ 		leave_mm(smp_processor_id());
+@@ -137,7 +194,14 @@ void native_flush_tlb_others(const struct cpumask *cpumask,
+ 				 struct mm_struct *mm, unsigned long start,
+ 				 unsigned long end)
+ {
++    unsigned cycles_high, cycles_low;
++    unsigned cycles_high1, cycles_low1;
++    unsigned long start_cycles;
++    unsigned long end_cycles;
++	unsigned long nr_pages = end?
++		(end - start) / PAGE_SIZE:1;
+ 	struct flush_tlb_info info;
++
+ 	info.flush_mm = mm;
+ 	info.flush_start = start;
+ 	info.flush_end = end;
+@@ -153,7 +217,35 @@ void native_flush_tlb_others(const struct cpumask *cpumask,
+ 								&info, 1);
+ 		return;
+ 	}
++	asm volatile
++		( "CPUID\n\t"
++		  "RDTSC\n\t"
++		  "mov %%edx, %0\n\t"
++		  "mov %%eax, %1\n\t"
++		  :
++		  "=r" (cycles_high), "=r" (cycles_low)
++		  ::
++		  "rax", "rbx", "rcx", "rdx"
++		);
++
+ 	smp_call_function_many(cpumask, flush_tlb_func, &info, 1);
++
++	asm volatile
++		( "RDTSCP\n\t"
++		  "mov %%edx, %0\n\t"
++		  "mov %%eax, %1\n\t"
++		  "CPUID\n\t"
++		  :
++		  "=r" (cycles_high1), "=r" (cycles_low1)
++		  ::
++		  "rax", "rbx", "rcx", "rdx"
++		);
++
++	start_cycles = ((uint64_t)cycles_high <<32 | cycles_low);
++	end_cycles = ((uint64_t)cycles_high1 <<32 | cycles_low1);
++
++	trace_tlb_flush(TLB_REMOTE_SHOOTDOWN_INIT, nr_pages, start,
++                            end_cycles - start_cycles);
+ }
+ 
+ void flush_tlb_current_task(void)
+diff --git a/include/trace/events/tlb.h b/include/trace/events/tlb.h
+index 4badfae..d7f28f6 100644
+--- a/include/trace/events/tlb.h
++++ b/include/trace/events/tlb.h
+@@ -34,7 +34,7 @@ TRACE_EVENT(tlb_flush,
+ 		__entry->elapsed_cycles = elapsed_cycles;
+ 	),
+ 
+-	TP_printk("pages:%ld reason:%s (%d) start page: %x elapsed cycles: %ld",
++	TP_printk("pages:%ld reason:%s (%d) start page: %lx elapsed cycles: %ld",
+ 		__entry->pages,
+ 		__print_symbolic(__entry->reason, TLB_FLUSH_REASON),
+ 		__entry->reason,
+-- 
+2.1.4
+

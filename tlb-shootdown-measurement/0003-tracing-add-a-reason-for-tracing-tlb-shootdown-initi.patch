@@ -1,0 +1,102 @@
+From e672b734d445c7a2bd85c5cf4ac90553e6082cdb Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Mon, 23 Feb 2015 11:19:58 -0500
+Subject: [PATCH 3/5]     tracing: add a reason for tracing tlb shootdown
+ initiator,     and cycles took for accomplish a shootdown
+
+    interface is added
+---
+ arch/x86/mm/tlb.c          |  8 ++++----
+ include/trace/events/tlb.h | 22 +++++++++++++++-------
+ 2 files changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/arch/x86/mm/tlb.c b/arch/x86/mm/tlb.c
+index 020bcc7..b0d8483 100644
+--- a/arch/x86/mm/tlb.c
++++ b/arch/x86/mm/tlb.c
+@@ -116,7 +116,7 @@ static void flush_tlb_func(void *info)
+ 	if (this_cpu_read(cpu_tlbstate.state) == TLBSTATE_OK) {
+ 		if (f->flush_end == TLB_FLUSH_ALL) {
+ 			local_flush_tlb();
+-			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, TLB_FLUSH_ALL);
++			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, TLB_FLUSH_ALL, 0, 0);
+ 		} else {
+ 			unsigned long addr;
+ 			unsigned long nr_pages =
+@@ -126,7 +126,7 @@ static void flush_tlb_func(void *info)
+ 				__flush_tlb_single(addr);
+ 				addr += PAGE_SIZE;
+ 			}
+-			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, nr_pages);
++			trace_tlb_flush(TLB_REMOTE_SHOOTDOWN, nr_pages, f->flush_start, 0);
+ 		}
+ 	} else
+ 		leave_mm(smp_processor_id());
+@@ -164,7 +164,7 @@ void flush_tlb_current_task(void)
+ 
+ 	count_vm_tlb_event(NR_TLB_LOCAL_FLUSH_ALL);
+ 	local_flush_tlb();
+-	trace_tlb_flush(TLB_LOCAL_SHOOTDOWN, TLB_FLUSH_ALL);
++	trace_tlb_flush(TLB_LOCAL_SHOOTDOWN, TLB_FLUSH_ALL, 0, 0);
+ 	if (cpumask_any_but(mm_cpumask(mm), smp_processor_id()) < nr_cpu_ids)
+ 		flush_tlb_others(mm_cpumask(mm), mm, 0UL, TLB_FLUSH_ALL);
+ 	preempt_enable();
+@@ -212,7 +212,7 @@ void flush_tlb_mm_range(struct mm_struct *mm, unsigned long start,
+ 			__flush_tlb_single(addr);
+ 		}
+ 	}
+-	trace_tlb_flush(TLB_LOCAL_MM_SHOOTDOWN, base_pages_to_flush);
++	trace_tlb_flush(TLB_LOCAL_MM_SHOOTDOWN, base_pages_to_flush, start, 0);
+ out:
+ 	if (base_pages_to_flush == TLB_FLUSH_ALL) {
+ 		start = 0UL;
+diff --git a/include/trace/events/tlb.h b/include/trace/events/tlb.h
+index 13391d2..4badfae 100644
+--- a/include/trace/events/tlb.h
++++ b/include/trace/events/tlb.h
+@@ -11,27 +11,35 @@
+ 	{ TLB_FLUSH_ON_TASK_SWITCH,	"flush on task switch" },	\
+ 	{ TLB_REMOTE_SHOOTDOWN,		"remote shootdown" },		\
+ 	{ TLB_LOCAL_SHOOTDOWN,		"local shootdown" },		\
+-	{ TLB_LOCAL_MM_SHOOTDOWN,	"local mm shootdown" }
++	{ TLB_LOCAL_MM_SHOOTDOWN,	"local mm shootdown" },		\
++	{ TLB_REMOTE_SHOOTDOWN_INIT,	"remote shootdown initiator" }
+ 
+ TRACE_EVENT(tlb_flush,
+ 
+-	TP_PROTO(int reason, unsigned long pages),
+-	TP_ARGS(reason, pages),
++	TP_PROTO(int reason, unsigned long pages, unsigned long start_addr,
++             unsigned long elapsed_cycles),
++	TP_ARGS(reason, pages, start_addr, elapsed_cycles),
+ 
+ 	TP_STRUCT__entry(
+ 		__field(	  int, reason)
+ 		__field(unsigned long,  pages)
++		__field(unsigned long,  start_addr)
++		__field(unsigned long,  elapsed_cycles)
+ 	),
+ 
+ 	TP_fast_assign(
+-		__entry->reason = reason;
+-		__entry->pages  = pages;
++		__entry->reason         = reason;
++		__entry->pages          = pages;
++		__entry->start_addr     = start_addr;
++		__entry->elapsed_cycles = elapsed_cycles;
+ 	),
+ 
+-	TP_printk("pages:%ld reason:%s (%d)",
++	TP_printk("pages:%ld reason:%s (%d) start page: %x elapsed cycles: %ld",
+ 		__entry->pages,
+ 		__print_symbolic(__entry->reason, TLB_FLUSH_REASON),
+-		__entry->reason)
++		__entry->reason,
++		__entry->start_addr,
++		__entry->elapsed_cycles)
+ );
+ 
+ #endif /* _TRACE_TLB_H */
+-- 
+2.1.4
+
