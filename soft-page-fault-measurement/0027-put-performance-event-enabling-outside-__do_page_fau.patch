@@ -1,0 +1,94 @@
+From 0868f9c3c806096428b0468f868d6309feb2a0f5 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 18:50:56 -0500
+Subject: [PATCH 27/33] put performance event enabling outside __do_page_fault
+ function
+
+---
+ arch/x86/mm/fault.c | 23 ++++++++++++-----------
+ 1 file changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 6987263..ad93be9 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -43,6 +43,8 @@ enum x86_pf_error_code {
+ 	PF_INSTR	=		1 << 4,
+ };
+ 
++static struct perf_event *do_page_fault_cycles = NULL;
++static struct perf_event *do_page_fault_event = NULL;
+ /*
+  * Returns 0 if mmiotrace is disabled, or if the fault is not
+  * handled by mmiotrace:
+@@ -1082,7 +1084,6 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
+ 
+ 	/*struct perf_event *vma_cycles, *handle_mm_cycles;*/
+-	struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long event_start = 0, event_end = 0;
+     unsigned long pre_vma_cycles = 0, find_vma_cycles = 0, vma_to_handle_mm_cycles = 0,
+                   handle_mm_fault_cycles = 0, post_handle_mm_cycles = 0;
+@@ -1090,11 +1091,7 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+     u64 enabled, running;
+     /*unsigned long handle_mm_start, handle_mm_total = 0;*/
+ 
+-    do_page_fault_event =
+-        perf_event_create_kernel_counter(&in_do_page_fault_attr,
+-                                         -1, current, NULL, NULL);
+     if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_enable(do_page_fault_event);
+         event_start = perf_event_read_value(do_page_fault_event,
+                                             &enabled, &running);
+     }
+@@ -1419,11 +1416,6 @@ good_area:
+ 	up_read(&mm->mmap_sem);
+ 
+ return_area:
+-    if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_disable(do_page_fault_event);
+-        perf_event_release_kernel(do_page_fault_event);
+-        do_page_fault_event = NULL;
+-    }
+     return;
+ }
+ NOKPROBE_SYMBOL(__do_page_fault);
+@@ -1494,7 +1486,6 @@ trace_page_fault_entries(unsigned long address, struct pt_regs *regs,
+ dotraplinkage void notrace
+ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+-	struct perf_event *do_page_fault_cycles;
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+@@ -1509,10 +1500,15 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	enum ctx_state prev_state;
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
++    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
++                                         -1, tsk, NULL, NULL);
+ 
+ 	prev_state = exception_enter();
+ 	trace_page_fault_entries(address, regs, error_code);
+ 
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_enable(do_page_fault_event);
++    }
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+@@ -1539,6 +1535,11 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_disable(do_page_fault_event);
++        perf_event_release_kernel(do_page_fault_event);
++        do_page_fault_event = NULL;
++    }
+ 	exception_exit(prev_state);
+ }
+ NOKPROBE_SYMBOL(trace_do_page_fault);
+-- 
+2.1.4
+

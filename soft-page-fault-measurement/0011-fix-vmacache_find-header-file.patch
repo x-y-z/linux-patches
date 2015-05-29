@@ -1,0 +1,24 @@
+From cecc12bb793523af8aa952a6f289e3a3af6dafdd Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 18:05:13 -0400
+Subject: [PATCH 11/33] fix vmacache_find header file
+
+---
+ arch/x86/mm/fault.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 1f21c49..e627eae 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -14,6 +14,7 @@
+ #include <linux/hugetlb.h>		/* hstate_index_to_shift	*/
+ #include <linux/prefetch.h>		/* prefetchw			*/
+ #include <linux/context_tracking.h>	/* exception_enter(), ...	*/
++#include <linux/vmacache.h>
+ 
+ #include <asm/traps.h>			/* dotraplinkage, ...		*/
+ #include <asm/pgalloc.h>		/* pgd_*(), ...			*/
+-- 
+2.1.4
+

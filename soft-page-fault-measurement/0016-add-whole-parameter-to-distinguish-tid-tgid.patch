@@ -1,0 +1,26 @@
+From bc789d768d631fdc4f2cb35ec673b0601f3a0a83 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Sun, 26 Oct 2014 11:10:05 -0400
+Subject: [PATCH 16/33] add whole parameter to distinguish tid tgid
+
+---
+ fs/proc/array.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index b9d8549..8e0afc9 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -562,7 +562,9 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     seq_put_decimal_ull(m, ' ', find_vma_cycles);
+     seq_put_decimal_ull(m, ' ', handle_mm_fault_cycles);
+     seq_put_decimal_ull(m, ' ', vma_in_cache);
++    seq_put_decimal_ull(m, ' ', whole);
+ 	seq_putc(m, '\n');
++
+ 	return 0;
+ }
+ 
+-- 
+2.1.4
+

@@ -1,0 +1,125 @@
+From 9a0bbc13e1ccb0066387d70f04b7aa5947f8d243 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Wed, 5 Nov 2014 10:57:38 -0500
+Subject: [PATCH 30/33] use only one perf counter
+
+---
+ arch/x86/mm/fault.c | 48 ++++++++++++++++++++++++------------------------
+ 1 file changed, 24 insertions(+), 24 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index f586c1e..9a56dc7 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1427,7 +1427,7 @@ dotraplinkage void notrace
+ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+ 	struct perf_event *do_page_fault_cycles = NULL;
+-    struct perf_event *do_page_fault_event = NULL;
++    /*struct perf_event *do_page_fault_event = NULL;*/
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+@@ -1436,12 +1436,12 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	enum ctx_state prev_state;
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+-    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
+-                                         -1, tsk, NULL, NULL);
++    /*do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,*/
++                                         /*-1, tsk, NULL, NULL);*/
+ 
+-    if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_enable(do_page_fault_event);
+-    }
++    /*if (!IS_ERR(do_page_fault_event)) {*/
++        /*perf_event_enable(do_page_fault_event);*/
++    /*}*/
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+@@ -1460,7 +1460,7 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	 */
+ 
+ 	prev_state = exception_enter();
+-	__do_page_fault(regs, error_code, address, do_page_fault_event, &is_soft_page_fault);
++	__do_page_fault(regs, error_code, address, do_page_fault_cycles, &is_soft_page_fault);
+ 	exception_exit(prev_state);
+ 
+ 
+@@ -1478,11 +1478,11 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
+-    if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_disable(do_page_fault_event);
+-        perf_event_release_kernel(do_page_fault_event);
+-        do_page_fault_event = NULL;
+-    }
++    /*if (!IS_ERR(do_page_fault_event)) {*/
++        /*perf_event_disable(do_page_fault_event);*/
++        /*perf_event_release_kernel(do_page_fault_event);*/
++        /*do_page_fault_event = NULL;*/
++    /*}*/
+ }
+ NOKPROBE_SYMBOL(do_page_fault);
+ 
+@@ -1501,7 +1501,7 @@ dotraplinkage void notrace
+ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+     struct perf_event *do_page_fault_cycles = NULL;
+-    struct perf_event *do_page_fault_event = NULL;
++    /*struct perf_event *do_page_fault_event = NULL;*/
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+@@ -1516,15 +1516,15 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	enum ctx_state prev_state;
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+-    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
+-                                         -1, tsk, NULL, NULL);
++    /*do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,*/
++                                         /*-1, tsk, NULL, NULL);*/
+ 
+ 	prev_state = exception_enter();
+ 	trace_page_fault_entries(address, regs, error_code);
+ 
+-    if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_enable(do_page_fault_event);
+-    }
++    /*if (!IS_ERR(do_page_fault_event)) {*/
++        /*perf_event_enable(do_page_fault_event);*/
++    /*}*/
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+@@ -1534,7 +1534,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     }
+ 
+ 
+-	__do_page_fault(regs, error_code, address, do_page_fault_event, &is_soft_page_fault);
++	__do_page_fault(regs, error_code, address, do_page_fault_cycles, &is_soft_page_fault);
+ 
+ 
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+@@ -1551,11 +1551,11 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
+-    if (!IS_ERR(do_page_fault_event)) {
+-        perf_event_disable(do_page_fault_event);
+-        perf_event_release_kernel(do_page_fault_event);
+-        do_page_fault_event = NULL;
+-    }
++    /*if (!IS_ERR(do_page_fault_event)) {*/
++        /*perf_event_disable(do_page_fault_event);*/
++        /*perf_event_release_kernel(do_page_fault_event);*/
++        /*do_page_fault_event = NULL;*/
++    /*}*/
+ 	exception_exit(prev_state);
+ }
+ NOKPROBE_SYMBOL(trace_do_page_fault);
+-- 
+2.1.4
+

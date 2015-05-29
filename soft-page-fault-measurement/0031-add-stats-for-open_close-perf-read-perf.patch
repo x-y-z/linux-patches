@@ -1,0 +1,224 @@
+From 8c105f1f828e3dbc35088de0cd7f9cf7b5e336b1 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Wed, 19 Nov 2014 19:01:22 -0500
+Subject: [PATCH 31/33] add stats for open_close perf, read perf.
+
+---
+ arch/x86/mm/fault.c   | 55 +++++++++++++++++++++++++++++++++++++++------------
+ fs/proc/array.c       | 11 ++++++++++-
+ include/linux/sched.h |  2 ++
+ kernel/exit.c         |  2 ++
+ kernel/fork.c         |  1 +
+ 5 files changed, 57 insertions(+), 14 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 9a56dc7..eb23931 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1427,29 +1427,45 @@ dotraplinkage void notrace
+ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+ 	struct perf_event *do_page_fault_cycles = NULL;
+-    /*struct perf_event *do_page_fault_event = NULL;*/
++    struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
++    unsigned long start1 = 0, start2 = 0, end = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+     int is_soft_page_fault = 0;
+-	unsigned long address;
++	unsigned long address = read_cr2(); /* Get the faulting address */
+ 	enum ctx_state prev_state;
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+-    /*do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,*/
+-                                         /*-1, tsk, NULL, NULL);*/
++
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    perf_event_enable(do_page_fault_cycles);
++	    start1 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++    }
++    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
++                                         -1, tsk, NULL, NULL);
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_disable(do_page_fault_event);
++        perf_event_release_kernel(do_page_fault_event);
++        do_page_fault_event = NULL;
++    }
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    start2 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++	    end = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++    }
++    tsk->open_close_perf_cycles += start2 - start1 - (end - start2)
++    tsk->read_perf_cycles += end - start2;
+ 
+     /*if (!IS_ERR(do_page_fault_event)) {*/
+         /*perf_event_enable(do_page_fault_event);*/
+     /*}*/
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+-	    perf_event_enable(do_page_fault_cycles);
++		/*perf_event_enable(do_page_fault_cycles);*/
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+     }
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
+-    address = read_cr2(); /* Get the faulting address */
+ 
+ 	/*
+ 	 * We must have this function tagged with __kprobes, notrace and call
+@@ -1478,11 +1494,6 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
+-    /*if (!IS_ERR(do_page_fault_event)) {*/
+-        /*perf_event_disable(do_page_fault_event);*/
+-        /*perf_event_release_kernel(do_page_fault_event);*/
+-        /*do_page_fault_event = NULL;*/
+-    /*}*/
+ }
+ NOKPROBE_SYMBOL(do_page_fault);
+ 
+@@ -1501,8 +1512,9 @@ dotraplinkage void notrace
+ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+     struct perf_event *do_page_fault_cycles = NULL;
+-    /*struct perf_event *do_page_fault_event = NULL;*/
++    struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
++    unsigned long start1 = 0, start2 = 0, end = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+     int is_soft_page_fault = 0;
+@@ -1518,6 +1530,23 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+     /*do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,*/
+                                          /*-1, tsk, NULL, NULL);*/
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    perf_event_enable(do_page_fault_cycles);
++	    start1 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++    }
++    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
++                                         -1, tsk, NULL, NULL);
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_disable(do_page_fault_event);
++        perf_event_release_kernel(do_page_fault_event);
++        do_page_fault_event = NULL;
++    }
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    start2 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++	    end = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++    }
++    tsk->open_close_perf_cycles += start2 - start1 - (end - start2)
++    tsk->read_perf_cycles += end - start2;
+ 
+ 	prev_state = exception_enter();
+ 	trace_page_fault_entries(address, regs, error_code);
+@@ -1526,7 +1555,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+         /*perf_event_enable(do_page_fault_event);*/
+     /*}*/
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+-	    perf_event_enable(do_page_fault_cycles);
++		/*perf_event_enable(do_page_fault_cycles);*/
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+     }
+     else {
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 8542183..6a96f23 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -548,6 +548,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                   soft_page_fault_cycles = 0;
+     unsigned long pre_vma_cycles = 0, vma_to_handle_mm_cycles = 0,
+                   post_handle_mm_cycles = 0;
++    unsigned long open_close_perf_cycles = 0, read_perf_cycles = 0;
+     unsigned long vma_in_cache = 0;
+ 	unsigned long flags;
+ 
+@@ -566,6 +567,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                 vma_to_handle_mm_cycles += t->vma_to_handle_mm_cycles;
+                 post_handle_mm_cycles += t->post_handle_mm_cycles;
+                 soft_page_fault_cycles += t->soft_page_fault_cycles;
++                open_close_perf_cycles += t->open_close_perf_cycles;
++                read_perf_cycles += t->read_perf_cycles;
+                 vma_in_cache += t->vma_in_cache;
+             } while_each_thread(task, t);
+ 
+@@ -579,6 +582,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+             vma_to_handle_mm_cycles += sig->vma_to_handle_mm_cycles;
+             post_handle_mm_cycles += sig->post_handle_mm_cycles;
+             soft_page_fault_cycles += sig->soft_page_fault_cycles;
++            open_close_perf_cycles += sig->open_close_perf_cycles;
++            read_perf_cycles += sig->read_perf_cycles;
+             vma_in_cache += sig->vma_in_cache;
+ 
+         }
+@@ -597,6 +602,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+         vma_to_handle_mm_cycles += task->vma_to_handle_mm_cycles;
+         post_handle_mm_cycles += task->post_handle_mm_cycles;
+         soft_page_fault_cycles = task->soft_page_fault_cycles;
++        open_close_perf_cycles += task->open_close_perf_cycles;
++        read_perf_cycles += task->read_perf_cycles;
+         vma_in_cache = task->vma_in_cache;
+     }
+ 
+@@ -609,8 +616,10 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     seq_put_decimal_ull(m, ' ', vma_to_handle_mm_cycles);
+     seq_put_decimal_ull(m, ' ', handle_mm_fault_cycles);
+     seq_put_decimal_ull(m, ' ', post_handle_mm_cycles);
+-    seq_put_decimal_ull(m, ' ', vma_in_cache);
+     seq_put_decimal_ull(m, ' ', soft_page_fault_cycles);
++    seq_put_decimal_ull(m, ' ', open_close_perf_cycles);
++    seq_put_decimal_ull(m, ' ', read_perf_cycles);
++    seq_put_decimal_ull(m, ' ', vma_in_cache);
+     seq_put_decimal_ull(m, ' ', whole);
+ 	seq_putc(m, '\n');
+ 
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index e3650b5..d7d1c65 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -658,6 +658,7 @@ struct signal_struct {
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
+     unsigned long pre_vma_cycles, vma_to_handle_mm_cycles, post_handle_mm_cycles;
++    unsigned long open_close_perf_cycles, read_perf_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	unsigned long inblock, oublock, cinblock, coublock;
+@@ -1382,6 +1383,7 @@ struct task_struct {
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
+     unsigned long pre_vma_cycles, vma_to_handle_mm_cycles, post_handle_mm_cycles;
++    unsigned long open_close_perf_cycles, read_perf_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	struct task_cputime cputime_expires;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 5ef00dd..a955088 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -149,6 +149,8 @@ static void __exit_signal(struct task_struct *tsk)
+         sig->vma_to_handle_mm_cycles += tsk->vma_to_handle_mm_cycles;
+         sig->post_handle_mm_cycles += tsk->post_handle_mm_cycles;
+         sig->soft_page_fault_cycles += tsk->soft_page_fault_cycles;
++        sig->open_close_perf_cycles += tsk->open_close_perf_cycles;
++        sig->read_perf_cycles += tsk->read_perf_cycles;
+         sig->vma_in_cache += tsk->vma_in_cache;
+ 
+ 	}
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 234818a..899c438 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -889,6 +889,7 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+                          = tsk->soft_page_fault_cycles = 0;
+     tsk->pre_vma_cycles  = tsk->vma_to_handle_mm_cycles
+                          = tsk->post_handle_mm_cycles = 0;
++    tsk->open_close_perf_cycles = tsk->read_perf_cycles = 0;
+     tsk->vma_in_cache = 0;
+ 
+ 	tsk->nvcsw = tsk->nivcsw = 0;
+-- 
+2.1.4
+

@@ -1,0 +1,144 @@
+From 4fd5fc552e02398c240d42781d757dfc73caad1a Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 24 Oct 2014 10:55:09 -0400
+Subject: [PATCH 13/33] add handle_mm cycles in
+
+---
+ arch/x86/mm/fault.c   | 34 ++++++++++++++++++++++++++++------
+ fs/proc/array.c       |  3 ++-
+ include/linux/sched.h |  3 ++-
+ kernel/fork.c         |  3 ++-
+ 4 files changed, 34 insertions(+), 9 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index d081b81..ae39386 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1059,11 +1059,11 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	int fault;
+ 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
+ 
+-	struct perf_event *vma_cycles;
++	struct perf_event *vma_cycles, *handle_mm_cycles;
+ 	unsigned long vma_start, vma_total = 0;
+     int vma_incache = 0;
+     u64 enabled, running;
+-	/*unsigned long handle_mm_start, handle_mm_total = 0;*/
++    unsigned long handle_mm_start, handle_mm_total = 0;
+ 
+ 	tsk = current;
+ 	mm = tsk->mm;
+@@ -1192,7 +1192,7 @@ retry:
+ 		might_sleep();
+ 	}
+ 
+-	vma_cycles = perf_event_create_kernel_counter(&vma_attr, tsk->on_cpu, tsk, NULL, NULL);
++	vma_cycles = perf_event_create_kernel_counter(&vma_attr, -1, tsk, NULL, NULL);
+ 
+     if (vmacache_find(mm, address)) {
+         vma_incache = 1;
+@@ -1211,7 +1211,7 @@ retry:
+         vma_cycles = NULL;
+ 	}
+     else {
+-        printk("Error code: %ld", PTR_ERR(vma_cycles));
++        printk("find vma, Error code: %ld", PTR_ERR(vma_cycles));
+ 	    vma = find_vma(mm, address);
+     }
+ 
+@@ -1253,6 +1253,12 @@ good_area:
+ 		return;
+ 	}
+ 
++	handle_mm_cycles = perf_event_create_kernel_counter(&vma_attr, -1, tsk, NULL, NULL);
++
++	if (!IS_ERR(handle_mm_cycles)) {
++	    perf_event_enable(handle_mm_cycles);
++	    handle_mm_start = perf_event_read_value(handle_mm_cycles, &enabled, &running);
++
+ 	/*
+ 	 * If for any reason at all we couldn't handle the fault,
+ 	 * make sure we exit gracefully rather than endlessly redo
+@@ -1261,6 +1267,16 @@ good_area:
+ 	 */
+ 	fault = handle_mm_fault(mm, vma, address, flags);
+ 
++	    handle_mm_total = perf_event_read_value(handle_mm_cycles, &enabled, &running) -
++                    handle_mm_start;
++	    perf_event_disable(handle_mm_cycles);
++        perf_event_release_kernel(handle_mm_cycles);
++        handle_mm_cycles = NULL;
++	}
++    else {
++        printk("Handle mm fault, Error code: %ld", PTR_ERR(vma_cycles));
++	    fault = handle_mm_fault(mm, vma, address, flags);
++    }
+ 	/*
+ 	 * If we need to retry but a fatal signal is pending, handle the
+ 	 * signal first. We do not need to release the mmap_sem because it
+@@ -1289,12 +1305,18 @@ good_area:
+ 			perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MIN, 1,
+ 				      regs, address);
+ 
+-            if (vma_total != 0) {
++            if (vma_total != 0 && handle_mm_total != 0) {
+ 		        tsk->find_vma_cycles += vma_total;
++                tsk->handle_mm_fault_cycles += handle_mm_cycles;
+ 			    tsk->counted_min_flt++;
+             }
+             else {
+-			    tsk->uncounted_min_flt++;
++                if (vma_total == 0){
++                    tsk->uncounted_min_flt_vma++;
++                }
++                if (handle_mm_total == 0) {
++                    tsk->uncounted_min_flt_handl_mm_fault++;
++                }
+             }
+             tsk->vma_in_cache += vma_incache;
+ 		}
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index ecb3e3b..a4c3a08 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -542,7 +542,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+ {
+     seq_put_decimal_ull(m, ' ', task->min_flt);
+     seq_put_decimal_ull(m, ' ', task->counted_min_flt);
+-    seq_put_decimal_ull(m, ' ', task->uncounted_min_flt);
++    seq_put_decimal_ull(m, ' ', task->uncounted_min_flt_vma);
++    seq_put_decimal_ull(m, ' ', task->uncounted_min_flt_handl_mm_fault);
+     seq_put_decimal_ull(m, ' ', task->find_vma_cycles);
+     seq_put_decimal_ull(m, ' ', task->handle_mm_fault_cycles);
+     seq_put_decimal_ull(m, ' ', task->vma_in_cache);
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 5b0729a..c9b18a7 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -1371,7 +1371,8 @@ struct task_struct {
+ 	 * two categories of soft(minor) page faults, we only count those not being
+ 	 * interrupted by other events like timer interrupt
+ 	 */
+-	unsigned long counted_min_flt, uncounted_min_flt;
++	unsigned long counted_min_flt;
++    unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles;
+     unsigned long vma_in_cache;
+ 
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 5edb699..618df95 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -883,7 +883,8 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+ 	int retval;
+ 
+ 	tsk->min_flt = tsk->maj_flt = 0;
+-    tsk->counted_min_flt = tsk->uncounted_min_flt = 0;
++    tsk->counted_min_flt = tsk->uncounted_min_flt_vma
++                         = tsk->uncounted_min_flt_handl_mm_fault = 0;
+     tsk->find_vma_cycles = tsk->handle_mm_fault_cycles = 0;
+     tsk->vma_in_cache = 0;
+ 
+-- 
+2.1.4
+

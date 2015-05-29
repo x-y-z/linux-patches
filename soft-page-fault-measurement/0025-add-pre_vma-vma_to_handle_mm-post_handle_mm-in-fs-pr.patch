@@ -1,0 +1,175 @@
+From abe8bb91fdbc9e4c45e2486fd386d806711f69eb Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 17:29:57 -0500
+Subject: [PATCH 25/33] add pre_vma, vma_to_handle_mm, post_handle_mm in
+ fs/proc/[pid]
+
+---
+ arch/x86/mm/fault.c   | 18 +++++++++---------
+ fs/proc/array.c       | 14 ++++++++++++++
+ include/linux/sched.h |  2 ++
+ kernel/exit.c         |  3 +++
+ kernel/fork.c         |  2 ++
+ 5 files changed, 30 insertions(+), 9 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index a08e860..625fb11 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1084,8 +1084,8 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	/*struct perf_event *vma_cycles, *handle_mm_cycles;*/
+ 	struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long event_start, event_end;
+-    unsigned long pre_vma_cycles = 0, vma_cycles = 0, vma_to_handle_mm_cycles = 0,
+-                  handle_mm_cycles = 0, post_handle_mm_cycles = 0;
++    unsigned long pre_vma_cycles = 0, find_vma_cycles = 0, vma_to_handle_mm_cycles = 0,
++                  handle_mm_fault_cycles = 0, post_handle_mm_cycles = 0;
+     int vma_incache = 0;
+     u64 enabled, running;
+     /*unsigned long handle_mm_start, handle_mm_total = 0;*/
+@@ -1257,7 +1257,7 @@ retry:
+     if (!IS_ERR(do_page_fault_event)) {
+         event_end = perf_event_read_value(do_page_fault_event,
+                                             &enabled, &running);
+-        vma_cycles = event_end - event_start;
++        find_vma_cycles = event_end - event_start;
+         event_start = event_end;
+     }
+ 		/*vma_total = perf_event_read_value(vma_cycles, &enabled, &running) -*/
+@@ -1337,7 +1337,7 @@ good_area:
+     if (!IS_ERR(do_page_fault_event)) {
+         event_end = perf_event_read_value(do_page_fault_event,
+                                             &enabled, &running);
+-        handle_mm_cycles = event_end - event_start;
++        handle_mm_fault_cycles = event_end - event_start;
+         event_start = event_end;
+     }
+ 		/*handle_mm_total = perf_event_read_value(handle_mm_cycles, &enabled, &running) -*/
+@@ -1385,17 +1385,17 @@ good_area:
+ 			perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MIN, 1,
+ 				      regs, address);
+ 
+-            if (vma_cycles != 0 && handle_mm_cycles != 0) {
+-		        tsk->find_vma_cycles += vma_cycles;
+-                tsk->handle_mm_fault_cycles += handle_mm_cycles;
++            if (find_vma_cycles != 0 && handle_mm_fault_cycles != 0) {
++		        tsk->find_vma_cycles += find_vma_cycles;
++                tsk->handle_mm_fault_cycles += handle_mm_fault_cycles;
+ 			    tsk->counted_min_flt++;
+                 *is_soft_page_fault = 1;
+             }
+             else {
+-                if (vma_cycles == 0){
++                if (find_vma_cycles == 0){
+                     tsk->uncounted_min_flt_vma++;
+                 }
+-                if (handle_mm_cycles == 0) {
++                if (handle_mm_fault_cycles == 0) {
+                     tsk->uncounted_min_flt_handl_mm_fault++;
+                 }
+             }
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 130434a..8542183 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -546,6 +546,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                   uncounted_min_flt_handl_mm_fault = 0;
+     unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0,
+                   soft_page_fault_cycles = 0;
++    unsigned long pre_vma_cycles = 0, vma_to_handle_mm_cycles = 0,
++                  post_handle_mm_cycles = 0;
+     unsigned long vma_in_cache = 0;
+ 	unsigned long flags;
+ 
+@@ -560,6 +562,9 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                 uncounted_min_flt_handl_mm_fault += t->uncounted_min_flt_handl_mm_fault;
+                 find_vma_cycles += t->find_vma_cycles;
+                 handle_mm_fault_cycles += t->handle_mm_fault_cycles;
++                pre_vma_cycles += t->pre_vma_cycles;
++                vma_to_handle_mm_cycles += t->vma_to_handle_mm_cycles;
++                post_handle_mm_cycles += t->post_handle_mm_cycles;
+                 soft_page_fault_cycles += t->soft_page_fault_cycles;
+                 vma_in_cache += t->vma_in_cache;
+             } while_each_thread(task, t);
+@@ -570,6 +575,9 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+             uncounted_min_flt_handl_mm_fault += sig->uncounted_min_flt_handl_mm_fault;
+             find_vma_cycles += sig->find_vma_cycles;
+             handle_mm_fault_cycles += sig->handle_mm_fault_cycles;
++            pre_vma_cycles += sig->pre_vma_cycles;
++            vma_to_handle_mm_cycles += sig->vma_to_handle_mm_cycles;
++            post_handle_mm_cycles += sig->post_handle_mm_cycles;
+             soft_page_fault_cycles += sig->soft_page_fault_cycles;
+             vma_in_cache += sig->vma_in_cache;
+ 
+@@ -585,6 +593,9 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+         uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
+         find_vma_cycles = task->find_vma_cycles;
+         handle_mm_fault_cycles = task->handle_mm_fault_cycles;
++        pre_vma_cycles += task->pre_vma_cycles;
++        vma_to_handle_mm_cycles += task->vma_to_handle_mm_cycles;
++        post_handle_mm_cycles += task->post_handle_mm_cycles;
+         soft_page_fault_cycles = task->soft_page_fault_cycles;
+         vma_in_cache = task->vma_in_cache;
+     }
+@@ -593,8 +604,11 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     seq_put_decimal_ull(m, ' ', counted_min_flt);
+     seq_put_decimal_ull(m, ' ', uncounted_min_flt_vma);
+     seq_put_decimal_ull(m, ' ', uncounted_min_flt_handl_mm_fault);
++    seq_put_decimal_ull(m, ' ', pre_vma_cycles);
+     seq_put_decimal_ull(m, ' ', find_vma_cycles);
++    seq_put_decimal_ull(m, ' ', vma_to_handle_mm_cycles);
+     seq_put_decimal_ull(m, ' ', handle_mm_fault_cycles);
++    seq_put_decimal_ull(m, ' ', post_handle_mm_cycles);
+     seq_put_decimal_ull(m, ' ', vma_in_cache);
+     seq_put_decimal_ull(m, ' ', soft_page_fault_cycles);
+     seq_put_decimal_ull(m, ' ', whole);
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index b783bf0..e3650b5 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -657,6 +657,7 @@ struct signal_struct {
+ 	unsigned long counted_min_flt;
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
++    unsigned long pre_vma_cycles, vma_to_handle_mm_cycles, post_handle_mm_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	unsigned long inblock, oublock, cinblock, coublock;
+@@ -1380,6 +1381,7 @@ struct task_struct {
+ 	unsigned long counted_min_flt;
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
++    unsigned long pre_vma_cycles, vma_to_handle_mm_cycles, post_handle_mm_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	struct task_cputime cputime_expires;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 06139c9..5ef00dd 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -145,6 +145,9 @@ static void __exit_signal(struct task_struct *tsk)
+              tsk->uncounted_min_flt_handl_mm_fault;
+         sig->find_vma_cycles += tsk->find_vma_cycles;
+         sig->handle_mm_fault_cycles += tsk->handle_mm_fault_cycles;
++        sig->pre_vma_cycles += tsk->pre_vma_cycles;
++        sig->vma_to_handle_mm_cycles += tsk->vma_to_handle_mm_cycles;
++        sig->post_handle_mm_cycles += tsk->post_handle_mm_cycles;
+         sig->soft_page_fault_cycles += tsk->soft_page_fault_cycles;
+         sig->vma_in_cache += tsk->vma_in_cache;
+ 
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 4c2acee..234818a 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -887,6 +887,8 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+                          = tsk->uncounted_min_flt_handl_mm_fault = 0;
+     tsk->find_vma_cycles = tsk->handle_mm_fault_cycles
+                          = tsk->soft_page_fault_cycles = 0;
++    tsk->pre_vma_cycles  = tsk->vma_to_handle_mm_cycles
++                         = tsk->post_handle_mm_cycles = 0;
+     tsk->vma_in_cache = 0;
+ 
+ 	tsk->nvcsw = tsk->nivcsw = 0;
+-- 
+2.1.4
+

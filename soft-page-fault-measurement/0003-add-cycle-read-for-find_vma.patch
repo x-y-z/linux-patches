@@ -1,0 +1,111 @@
+From 668a79c6fb5d3aa9e547149ecc0b24df34f49ff2 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Wed, 22 Oct 2014 15:50:49 -0400
+Subject: [PATCH 03/33] add cycle read for find_vma
+
+---
+ arch/x86/mm/fault.c   | 34 ++++++++++++++++++++++++++++++++--
+ include/linux/sched.h |  6 ++++++
+ 2 files changed, 38 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index a241946..5c0f521 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -178,7 +178,7 @@ force_sig_info_fault(int si_signo, int si_code, unsigned long address,
+ 	info.si_code	= si_code;
+ 	info.si_addr	= (void __user *)address;
+ 	if (fault & VM_FAULT_HWPOISON_LARGE)
+-		lsb = hstate_index_to_shift(VM_FAULT_GET_HINDEX(fault)); 
++		lsb = hstate_index_to_shift(VM_FAULT_GET_HINDEX(fault));
+ 	if (fault & VM_FAULT_HWPOISON)
+ 		lsb = PAGE_SHIFT;
+ 	info.si_addr_lsb = lsb;
+@@ -431,7 +431,7 @@ NOKPROBE_SYMBOL(vmalloc_fault);
+ 
+ #ifdef CONFIG_CPU_SUP_AMD
+ static const char errata93_warning[] =
+-KERN_ERR 
++KERN_ERR
+ "******* Your BIOS seems to not contain a fix for K8 errata #93\n"
+ "******* Working around it, but it may cause SEGVs or burn power.\n"
+ "******* Please consider a BIOS update.\n"
+@@ -1031,6 +1031,14 @@ static inline bool smap_violation(int error_code, struct pt_regs *regs)
+ 	return true;
+ }
+ 
++static struct perf_event_attr vma_attr = {
++    .type         = PERF_TYPE_HARDWARE,
++    .config       = PERF_COUNT_HW_CPU_CYCLES,
++    .size         = sizeof(struct perf_event_attr),
++    .pinned       = 1,
++    .disabled     = 1
++};
++
+ /*
+  * This routine handles page faults.  It determines the address,
+  * and the problem, and then passes it off to one of the appropriate
+@@ -1050,6 +1058,10 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	int fault;
+ 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
+ 
++	struct perf_event *vma_cycles;
++	unsigned long vma_start, vma_total = 0;
++	unsigned long handle_mm_start, handle_mm_total = 0;
++
+ 	tsk = current;
+ 	mm = tsk->mm;
+ 
+@@ -1177,7 +1189,22 @@ retry:
+ 		might_sleep();
+ 	}
+ 
++	vma_cycles = perf_event_create_kernel_counter(&vma_attr, 0, NULL, NULL, NULL);
++
++	if (!IS_ERR(vma_cycles)) {
++	    perf_event_enable(vma_cycles);
++	    vma_start = perf_event_read(vma_cycles);
++	}
++
+ 	vma = find_vma(mm, address);
++
++	if (!IS_ERR(vma_cycles)) {
++	    vma_total = perf_event_read(vma_cycles) - vma_start;
++	    perf_event_disable(vma_cycles);
++	}
++
++    perf_event_release_kernel(vma_cycles);
++
+ 	if (unlikely(!vma)) {
+ 		bad_area(regs, error_code, address);
+ 		return;
+@@ -1250,6 +1277,9 @@ good_area:
+ 			tsk->min_flt++;
+ 			perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MIN, 1,
+ 				      regs, address);
++
++		        tsk->find_vma_cycles += vma_total;
++			tsk->counted_min_flt++;
+ 		}
+ 		if (fault & VM_FAULT_RETRY) {
+ 			/* Clear FAULT_FLAG_ALLOW_RETRY to avoid any risk
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index b867a4d..6c354f2 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -1367,6 +1367,12 @@ struct task_struct {
+ 	u64 real_start_time;	/* boot based time in nsec */
+ /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
+ 	unsigned long min_flt, maj_flt;
++	/* 
++	 * two categories of soft(minor) page faults, we only count those not being 
++	 * interrupted by other events like timer interrupt
++	 */
++	unsigned long counted_min_flt, uncounted_min_flt;
++	unsigned long find_vma_cycles, handle_mm_fault_cycles;
+ 
+ 	struct task_cputime cputime_expires;
+ 	struct list_head cpu_timers[3];
+-- 
+2.1.4
+

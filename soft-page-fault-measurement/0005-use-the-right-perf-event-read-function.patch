@@ -1,0 +1,43 @@
+From efe078d04355a3b9e62f9149cbe01451183399ef Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 10:46:35 -0400
+Subject: [PATCH 05/33] use the right perf event read function
+
+---
+ arch/x86/mm/fault.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 5c0f521..ed9110e 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1060,7 +1060,8 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 
+ 	struct perf_event *vma_cycles;
+ 	unsigned long vma_start, vma_total = 0;
+-	unsigned long handle_mm_start, handle_mm_total = 0;
++    u64 enabled, running;
++	/*unsigned long handle_mm_start, handle_mm_total = 0;*/
+ 
+ 	tsk = current;
+ 	mm = tsk->mm;
+@@ -1193,13 +1194,14 @@ retry:
+ 
+ 	if (!IS_ERR(vma_cycles)) {
+ 	    perf_event_enable(vma_cycles);
+-	    vma_start = perf_event_read(vma_cycles);
++	    vma_start = perf_event_read_value(vma_cycles, &enabled, &running);
+ 	}
+ 
+ 	vma = find_vma(mm, address);
+ 
+ 	if (!IS_ERR(vma_cycles)) {
+-	    vma_total = perf_event_read(vma_cycles) - vma_start;
++	    vma_total = perf_event_read_value(vma_cycles, &enabled, &running) -
++                    vma_start;
+ 	    perf_event_disable(vma_cycles);
+ 	}
+ 
+-- 
+2.1.4
+

@@ -1,0 +1,25 @@
+From b6eb28a94c03835b4cc05e4f8c8f43260bc4cbb2 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 17:22:44 -0400
+Subject: [PATCH 09/33] initialize all stats
+
+---
+ kernel/fork.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/kernel/fork.c b/kernel/fork.c
+index a91e47d..84f9af5 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -883,6 +883,8 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+ 	int retval;
+ 
+ 	tsk->min_flt = tsk->maj_flt = 0;
++    tsk->counted_min_flt = tsk->uncounted_min_flt = 0;
++    tsk->find_vma_cycles = tsk->handle_mm_fault_cycles = 0;
+ 	tsk->nvcsw = tsk->nivcsw = 0;
+ #ifdef CONFIG_DETECT_HUNG_TASK
+ 	tsk->last_switch_count = tsk->nvcsw + tsk->nivcsw;
+-- 
+2.1.4
+

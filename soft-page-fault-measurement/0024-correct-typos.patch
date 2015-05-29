@@ -1,0 +1,87 @@
+From 0826a244b6e39f62fc529000283b3a24e6f5ff47 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 17:06:47 -0500
+Subject: [PATCH 24/33] correct typos
+
+---
+ arch/x86/mm/fault.c | 42 +++++++++++++++++++++---------------------
+ 1 file changed, 21 insertions(+), 21 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index d35da8c..a08e860 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1047,21 +1047,21 @@ static struct perf_event_attr in_do_page_fault_attr = {
+     .pinned       = 1,
+     .disabled     = 1
+ };
+-static struct perf_event_attr vma_attr = {
+-    .type         = PERF_TYPE_HARDWARE,
+-    .config       = PERF_COUNT_HW_CPU_CYCLES,
+-    .size         = sizeof(struct perf_event_attr),
+-    .pinned       = 1,
+-    .disabled     = 1
+-};
+-
+-static struct perf_event_attr handle_mm_attr = {
+-    .type         = PERF_TYPE_HARDWARE,
+-    .config       = PERF_COUNT_HW_CPU_CYCLES,
+-    .size         = sizeof(struct perf_event_attr),
+-    .pinned       = 1,
+-    .disabled     = 1
+-};
++/*static struct perf_event_attr vma_attr = {*/
++    /*.type         = PERF_TYPE_HARDWARE,*/
++    /*.config       = PERF_COUNT_HW_CPU_CYCLES,*/
++    /*.size         = sizeof(struct perf_event_attr),*/
++    /*.pinned       = 1,*/
++    /*.disabled     = 1*/
++/*};*/
++
++/*static struct perf_event_attr handle_mm_attr = {*/
++    /*.type         = PERF_TYPE_HARDWARE,*/
++    /*.config       = PERF_COUNT_HW_CPU_CYCLES,*/
++    /*.size         = sizeof(struct perf_event_attr),*/
++    /*.pinned       = 1,*/
++    /*.disabled     = 1*/
++/*};*/
+ /*
+  * This routine handles page faults.  It determines the address,
+  * and the problem, and then passes it off to one of the appropriate
+@@ -1083,16 +1083,16 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 
+ 	/*struct perf_event *vma_cycles, *handle_mm_cycles;*/
+ 	struct perf_event *do_page_fault_event = NULL;
+-	unsigned long event_start, event_end, event_total;
+-    unsigned long pre_vma_cycles, vma_cycles, vma_to_handle_mm_cycles,
+-                  handle_mm_cycles, post_handle_mm_cycles;
++	unsigned long event_start, event_end;
++    unsigned long pre_vma_cycles = 0, vma_cycles = 0, vma_to_handle_mm_cycles = 0,
++                  handle_mm_cycles = 0, post_handle_mm_cycles = 0;
+     int vma_incache = 0;
+     u64 enabled, running;
+     /*unsigned long handle_mm_start, handle_mm_total = 0;*/
+ 
+     do_page_fault_event =
+         perf_event_create_kernel_counter(&in_do_page_fault_attr,
+-                                         -1, tsk, NULL, NULL);
++                                         -1, current, NULL, NULL);
+     if (!IS_ERR(do_page_fault_event)) {
+         perf_event_enable(do_page_fault_event);
+         event_start = perf_event_read_value(do_page_fault_event,
+@@ -1392,10 +1392,10 @@ good_area:
+                 *is_soft_page_fault = 1;
+             }
+             else {
+-                if (vma_total == 0){
++                if (vma_cycles == 0){
+                     tsk->uncounted_min_flt_vma++;
+                 }
+-                if (handle_mm_total == 0) {
++                if (handle_mm_cycles == 0) {
+                     tsk->uncounted_min_flt_handl_mm_fault++;
+                 }
+             }
+-- 
+2.1.4
+

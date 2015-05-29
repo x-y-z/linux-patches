@@ -1,0 +1,105 @@
+From a1ae1a0f7c6fbc22a32b49eba338a092388fd6df Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Mon, 3 Nov 2014 13:40:55 -0500
+Subject: [PATCH 18/33] soft page fault stats works v1.0
+
+---
+ fs/proc/array.c       | 40 ++++++++++++++++++++++++++++------------
+ include/linux/sched.h |  6 ++++++
+ kernel/exit.c         | 10 ++++++++++
+ 3 files changed, 44 insertions(+), 12 deletions(-)
+
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index eed7fc3..719153e 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -546,20 +546,36 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                   uncounted_min_flt_handl_mm_fault = 0;
+     unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0;
+     unsigned long vma_in_cache = 0;
++	unsigned long flags;
+ 
+-    if (whole) {
+-        struct task_struct *t = task;
+-        do {
+-            min_flt += task->min_flt;
+-            counted_min_flt += task->counted_min_flt;
+-            uncounted_min_flt_vma += task->uncounted_min_flt_vma;
+-            uncounted_min_flt_handl_mm_fault += task->uncounted_min_flt_handl_mm_fault;
+-            find_vma_cycles += task->find_vma_cycles;
+-            handle_mm_fault_cycles += task->handle_mm_fault_cycles;
+-            vma_in_cache += task->vma_in_cache;
+-        } while_each_thread(task, t);
++    if (lock_task_sighand(task, &flags)) {
++        struct signal_struct *sig = task->signal;
++        if (whole) {
++            struct task_struct *t = task;
++            do {
++                min_flt += t->min_flt;
++                counted_min_flt += t->counted_min_flt;
++                uncounted_min_flt_vma += t->uncounted_min_flt_vma;
++                uncounted_min_flt_handl_mm_fault += t->uncounted_min_flt_handl_mm_fault;
++                find_vma_cycles += t->find_vma_cycles;
++                handle_mm_fault_cycles += t->handle_mm_fault_cycles;
++                vma_in_cache += t->vma_in_cache;
++            } while_each_thread(task, t);
++
++            min_flt += sig->min_flt;
++            counted_min_flt += sig->counted_min_flt;
++            uncounted_min_flt_vma += sig->uncounted_min_flt_vma;
++            uncounted_min_flt_handl_mm_fault += sig->uncounted_min_flt_handl_mm_fault;
++            find_vma_cycles += sig->find_vma_cycles;
++            handle_mm_fault_cycles += sig->handle_mm_fault_cycles;
++            vma_in_cache += sig->vma_in_cache;
++
++        }
++
++        unlock_task_sighand(task, &flags);
+     }
+-    else {
++
++    if (!whole) {
+         min_flt = task->min_flt;
+         counted_min_flt = task->counted_min_flt;
+         uncounted_min_flt_vma = task->uncounted_min_flt_vma;
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index c9b18a7..84e83ac 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -653,6 +653,12 @@ struct signal_struct {
+ #endif
+ 	unsigned long nvcsw, nivcsw, cnvcsw, cnivcsw;
+ 	unsigned long min_flt, maj_flt, cmin_flt, cmaj_flt;
++
++	unsigned long counted_min_flt;
++    unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
++	unsigned long find_vma_cycles, handle_mm_fault_cycles;
++    unsigned long vma_in_cache;
++
+ 	unsigned long inblock, oublock, cinblock, coublock;
+ 	unsigned long maxrss, cmaxrss;
+ 	struct task_io_accounting ioac;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 32c58f7..8595721 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -137,6 +137,16 @@ static void __exit_signal(struct task_struct *tsk)
+ 		sig->oublock += task_io_get_oublock(tsk);
+ 		task_io_accounting_add(&sig->ioac, &tsk->ioac);
+ 		sig->sum_sched_runtime += tsk->se.sum_exec_runtime;
++
++
++		sig->counted_min_flt += tsk->counted_min_flt;
++		sig->uncounted_min_flt_vma += tsk->uncounted_min_flt_vma;
++		sig->uncounted_min_flt_handl_mm_fault +=
++             tsk->uncounted_min_flt_handl_mm_fault;
++        sig->find_vma_cycles += tsk->find_vma_cycles;
++        sig->handle_mm_fault_cycles += tsk->handle_mm_fault_cycles;
++        sig->vma_in_cache += tsk->vma_in_cache;
++
+ 	}
+ 
+ 	sig->nr_threads--;
+-- 
+2.1.4
+

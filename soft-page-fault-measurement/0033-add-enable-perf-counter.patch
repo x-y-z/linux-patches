@@ -1,0 +1,32 @@
+From 309dc48d330664f32081533bff2a1b37c119939b Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 30 Jan 2015 15:30:10 -0500
+Subject: [PATCH 33/33] add enable perf counter
+
+---
+ arch/x86/mm/fault.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index f369fa9..96ab638 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1445,6 +1445,7 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
+                                          -1, tsk, NULL, NULL);
+     if (!IS_ERR(do_page_fault_event)) {
++        perf_event_enable(do_page_fault_event);
+         perf_event_disable(do_page_fault_event);
+         perf_event_release_kernel(do_page_fault_event);
+         do_page_fault_event = NULL;
+@@ -1537,6 +1538,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
+                                          -1, tsk, NULL, NULL);
+     if (!IS_ERR(do_page_fault_event)) {
++        perf_event_enable(do_page_fault_event);
+         perf_event_disable(do_page_fault_event);
+         perf_event_release_kernel(do_page_fault_event);
+         do_page_fault_event = NULL;
+-- 
+2.1.4
+

@@ -1,0 +1,42 @@
+From 3b3ad5e1572dc565f7bf554308eae7698cf3128a Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 24 Oct 2014 09:18:42 -0400
+Subject: [PATCH 12/33] move vmacache_find out of cycle counting
+
+---
+ arch/x86/mm/fault.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index e627eae..d081b81 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1194,20 +1194,21 @@ retry:
+ 
+ 	vma_cycles = perf_event_create_kernel_counter(&vma_attr, tsk->on_cpu, tsk, NULL, NULL);
+ 
++    if (vmacache_find(mm, address)) {
++        vma_incache = 1;
++    }
+ 	if (!IS_ERR(vma_cycles)) {
+ 	    perf_event_enable(vma_cycles);
+ 	    vma_start = perf_event_read_value(vma_cycles, &enabled, &running);
+ 
+-	    vma = find_vma(mm, address);
+ 
+-        if (vmacache_find(mm, address)) {
+-            vma_incache = 1;
+-        }
++	    vma = find_vma(mm, address);
+ 
+ 	    vma_total = perf_event_read_value(vma_cycles, &enabled, &running) -
+                     vma_start;
+ 	    perf_event_disable(vma_cycles);
+         perf_event_release_kernel(vma_cycles);
++        vma_cycles = NULL;
+ 	}
+     else {
+         printk("Error code: %ld", PTR_ERR(vma_cycles));
+-- 
+2.1.4
+

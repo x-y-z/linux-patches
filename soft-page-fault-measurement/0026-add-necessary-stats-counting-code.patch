@@ -1,0 +1,72 @@
+From 8e15ca0f2a16fba83493d5d522facb880d470232 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 18:43:22 -0500
+Subject: [PATCH 26/33] add necessary stats counting code
+
+---
+ arch/x86/mm/fault.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 625fb11..6987263 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1083,7 +1083,7 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 
+ 	/*struct perf_event *vma_cycles, *handle_mm_cycles;*/
+ 	struct perf_event *do_page_fault_event = NULL;
+-	unsigned long event_start, event_end;
++	unsigned long event_start = 0, event_end = 0;
+     unsigned long pre_vma_cycles = 0, find_vma_cycles = 0, vma_to_handle_mm_cycles = 0,
+                   handle_mm_fault_cycles = 0, post_handle_mm_cycles = 0;
+     int vma_incache = 0;
+@@ -1369,6 +1369,7 @@ good_area:
+         event_end = perf_event_read_value(do_page_fault_event,
+                                             &enabled, &running);
+         post_handle_mm_cycles = event_end - event_start;
++        event_start = event_end;
+     }
+ 	/*
+ 	 * Major/minor page fault accounting is only done on the
+@@ -1388,6 +1389,9 @@ good_area:
+             if (find_vma_cycles != 0 && handle_mm_fault_cycles != 0) {
+ 		        tsk->find_vma_cycles += find_vma_cycles;
+                 tsk->handle_mm_fault_cycles += handle_mm_fault_cycles;
++                tsk->pre_vma_cycles += pre_vma_cycles;
++                tsk->vma_to_handle_mm_cycles += vma_to_handle_mm_cycles;
++                tsk->post_handle_mm_cycles += post_handle_mm_cycles;
+ 			    tsk->counted_min_flt++;
+                 *is_soft_page_fault = 1;
+             }
+@@ -1506,6 +1510,9 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+ 
++	prev_state = exception_enter();
++	trace_page_fault_entries(address, regs, error_code);
++
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+@@ -1515,10 +1522,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     }
+ 
+ 
+-	prev_state = exception_enter();
+-	trace_page_fault_entries(address, regs, error_code);
+ 	__do_page_fault(regs, error_code, address, &is_soft_page_fault);
+-	exception_exit(prev_state);
+ 
+ 
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+@@ -1535,6 +1539,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
++	exception_exit(prev_state);
+ }
+ NOKPROBE_SYMBOL(trace_do_page_fault);
+ #endif /* CONFIG_TRACING */
+-- 
+2.1.4
+

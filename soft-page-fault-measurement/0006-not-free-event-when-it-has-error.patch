@@ -1,0 +1,39 @@
+From 9f85e10f58456113606a91aca241eb1ba50b9ea3 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 11:05:37 -0400
+Subject: [PATCH 06/33] not free event when it has error
+
+---
+ arch/x86/mm/fault.c | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index ed9110e..14c9304 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1195,17 +1195,18 @@ retry:
+ 	if (!IS_ERR(vma_cycles)) {
+ 	    perf_event_enable(vma_cycles);
+ 	    vma_start = perf_event_read_value(vma_cycles, &enabled, &running);
+-	}
+ 
+-	vma = find_vma(mm, address);
++	    vma = find_vma(mm, address);
+ 
+-	if (!IS_ERR(vma_cycles)) {
+ 	    vma_total = perf_event_read_value(vma_cycles, &enabled, &running) -
+                     vma_start;
+ 	    perf_event_disable(vma_cycles);
++        perf_event_release_kernel(vma_cycles);
+ 	}
++    else {
++	    vma = find_vma(mm, address);
++    }
+ 
+-    perf_event_release_kernel(vma_cycles);
+ 
+ 	if (unlikely(!vma)) {
+ 		bad_area(regs, error_code, address);
+-- 
+2.1.4
+

@@ -1,0 +1,48 @@
+From 6cc2b0737deccedbd897575677753ceeb82e4b23 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 16:17:44 -0400
+Subject: [PATCH 08/33] add uncounted min flt stats
+
+---
+ arch/x86/mm/fault.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 14c9304..ed81fac 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1190,7 +1190,7 @@ retry:
+ 		might_sleep();
+ 	}
+ 
+-	vma_cycles = perf_event_create_kernel_counter(&vma_attr, 0, NULL, NULL, NULL);
++	vma_cycles = perf_event_create_kernel_counter(&vma_attr, tsk->on_cpu, tsk, NULL, NULL);
+ 
+ 	if (!IS_ERR(vma_cycles)) {
+ 	    perf_event_enable(vma_cycles);
+@@ -1204,6 +1204,7 @@ retry:
+         perf_event_release_kernel(vma_cycles);
+ 	}
+     else {
++        printk("Error code: %ld", PTR_ERR(vma_cycles));
+ 	    vma = find_vma(mm, address);
+     }
+ 
+@@ -1281,8 +1282,13 @@ good_area:
+ 			perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS_MIN, 1,
+ 				      regs, address);
+ 
++            if (vma_total != 0) {
+ 		        tsk->find_vma_cycles += vma_total;
+-			tsk->counted_min_flt++;
++			    tsk->counted_min_flt++;
++            }
++            else {
++			    tsk->uncounted_min_flt++;
++            }
+ 		}
+ 		if (fault & VM_FAULT_RETRY) {
+ 			/* Clear FAULT_FLAG_ALLOW_RETRY to avoid any risk
+-- 
+2.1.4
+

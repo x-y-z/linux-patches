@@ -1,0 +1,170 @@
+From c18a9fdd8f7feae4d99be215f19c08c85da7a716 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 14:27:15 -0500
+Subject: [PATCH 22/33] gather returns to one place
+
+---
+ arch/x86/mm/fault.c | 54 ++++++++++++++++++++++++++++++++++++-----------------
+ 1 file changed, 37 insertions(+), 17 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index a42acbd..3d84b42 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1092,7 +1092,8 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	prefetchw(&mm->mmap_sem);
+ 
+ 	if (unlikely(kmmio_fault(regs, address)))
+-		return;
++        goto return_area;
++		/*return;*/
+ 
+ 	/*
+ 	 * We fault-in kernel-space virtual memory on-demand. The
+@@ -1110,38 +1111,45 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	if (unlikely(fault_in_kernel_space(address))) {
+ 		if (!(error_code & (PF_RSVD | PF_USER | PF_PROT))) {
+ 			if (vmalloc_fault(address) >= 0)
+-				return;
++                goto return_area;
++				/*return;*/
+ 
+ 			if (kmemcheck_fault(regs, address, error_code))
+-				return;
++                goto return_area;
++				/*return;*/
+ 		}
+ 
+ 		/* Can handle a stale RO->RW TLB: */
+ 		if (spurious_fault(error_code, address))
+-			return;
++            goto return_area;
++			/*return;*/
+ 
+ 		/* kprobes don't want to hook the spurious faults: */
+ 		if (kprobes_fault(regs))
+-			return;
++            goto return_area;
++			/*return;*/
+ 		/*
+ 		 * Don't take the mm semaphore here. If we fixup a prefetch
+ 		 * fault we could otherwise deadlock:
+ 		 */
+ 		bad_area_nosemaphore(regs, error_code, address);
+ 
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	/* kprobes don't want to hook the spurious faults: */
+ 	if (unlikely(kprobes_fault(regs)))
+-		return;
++        goto return_area;
++		/*return;*/
+ 
+ 	if (unlikely(error_code & PF_RSVD))
+ 		pgtable_bad(regs, error_code, address);
+ 
+ 	if (unlikely(smap_violation(error_code, regs))) {
+ 		bad_area_nosemaphore(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	/*
+@@ -1150,7 +1158,8 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 	 */
+ 	if (unlikely(in_atomic() || !mm)) {
+ 		bad_area_nosemaphore(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	/*
+@@ -1194,7 +1203,8 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 		if ((error_code & PF_USER) == 0 &&
+ 		    !search_exception_tables(regs->ip)) {
+ 			bad_area_nosemaphore(regs, error_code, address);
+-			return;
++            goto return_area;
++			/*return;*/
+ 		}
+ retry:
+ 		down_read(&mm->mmap_sem);
+@@ -1233,13 +1243,15 @@ retry:
+ 
+ 	if (unlikely(!vma)) {
+ 		bad_area(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 	if (likely(vma->vm_start <= address))
+ 		goto good_area;
+ 	if (unlikely(!(vma->vm_flags & VM_GROWSDOWN))) {
+ 		bad_area(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 	if (error_code & PF_USER) {
+ 		/*
+@@ -1250,12 +1262,14 @@ retry:
+ 		 */
+ 		if (unlikely(address + 65536 + 32 * sizeof(unsigned long) < regs->sp)) {
+ 			bad_area(regs, error_code, address);
+-			return;
++            goto return_area;
++			/*return;*/
+ 		}
+ 	}
+ 	if (unlikely(expand_stack(vma, address))) {
+ 		bad_area(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	/*
+@@ -1265,7 +1279,8 @@ retry:
+ good_area:
+ 	if (unlikely(access_error(error_code, vma))) {
+ 		bad_area_access_error(regs, error_code, address);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	handle_mm_cycles = perf_event_create_kernel_counter(&handle_mm_attr, -1, tsk, NULL, NULL);
+@@ -1298,11 +1313,13 @@ good_area:
+ 	 * would already be released in __lock_page_or_retry in mm/filemap.c.
+ 	 */
+ 	if (unlikely((fault & VM_FAULT_RETRY) && fatal_signal_pending(current)))
+-		return;
++        goto return_area;
++		/*return;*/
+ 
+ 	if (unlikely(fault & VM_FAULT_ERROR)) {
+ 		mm_fault_error(regs, error_code, address, fault);
+-		return;
++        goto return_area;
++		/*return;*/
+ 	}
+ 
+ 	/*
+@@ -1348,6 +1365,9 @@ good_area:
+ 	check_v8086_mode(regs, address, tsk);
+ 
+ 	up_read(&mm->mmap_sem);
++
++return_area:
++    return;
+ }
+ NOKPROBE_SYMBOL(__do_page_fault);
+ 
+-- 
+2.1.4
+

@@ -1,0 +1,48 @@
+From 510574d7d2f85b4c27c85fbbd73d7b24ceb7cc7a Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Fri, 24 Oct 2014 13:23:24 -0400
+Subject: [PATCH 14/33] cycle count working now
+
+---
+ arch/x86/mm/fault.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index ae39386..81ed3dc 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1040,6 +1040,13 @@ static struct perf_event_attr vma_attr = {
+     .disabled     = 1
+ };
+ 
++static struct perf_event_attr handle_mm_attr = {
++    .type         = PERF_TYPE_HARDWARE,
++    .config       = PERF_COUNT_HW_CPU_CYCLES,
++    .size         = sizeof(struct perf_event_attr),
++    .pinned       = 1,
++    .disabled     = 1
++};
+ /*
+  * This routine handles page faults.  It determines the address,
+  * and the problem, and then passes it off to one of the appropriate
+@@ -1253,7 +1260,7 @@ good_area:
+ 		return;
+ 	}
+ 
+-	handle_mm_cycles = perf_event_create_kernel_counter(&vma_attr, -1, tsk, NULL, NULL);
++	handle_mm_cycles = perf_event_create_kernel_counter(&handle_mm_attr, -1, tsk, NULL, NULL);
+ 
+ 	if (!IS_ERR(handle_mm_cycles)) {
+ 	    perf_event_enable(handle_mm_cycles);
+@@ -1307,7 +1314,7 @@ good_area:
+ 
+             if (vma_total != 0 && handle_mm_total != 0) {
+ 		        tsk->find_vma_cycles += vma_total;
+-                tsk->handle_mm_fault_cycles += handle_mm_cycles;
++                tsk->handle_mm_fault_cycles += handle_mm_total;
+ 			    tsk->counted_min_flt++;
+             }
+             else {
+-- 
+2.1.4
+

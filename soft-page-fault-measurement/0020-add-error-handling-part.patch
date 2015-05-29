@@ -1,0 +1,72 @@
+From ef7787d85de2872e2139be1c2c25721925f4a8d1 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Tue, 4 Nov 2014 08:32:22 -0500
+Subject: [PATCH 20/33] add error handling part
+
+---
+ arch/x86/mm/fault.c | 16 +++++++++++++++-
+ fs/proc/array.c     |  2 +-
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 49cbd1c..273abe9 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1032,6 +1032,14 @@ static inline bool smap_violation(int error_code, struct pt_regs *regs)
+ 	return true;
+ }
+ 
++static struct perf_event_attr do_page_fault_attr = {
++    .type         = PERF_TYPE_HARDWARE,
++    .config       = PERF_COUNT_HW_CPU_CYCLES,
++    .size         = sizeof(struct perf_event_attr),
++    .pinned       = 1,
++    .disabled     = 1
++};
++
+ static struct perf_event_attr vma_attr = {
+     .type         = PERF_TYPE_HARDWARE,
+     .config       = PERF_COUNT_HW_CPU_CYCLES,
+@@ -1354,12 +1362,15 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	unsigned long address;
+ 	enum ctx_state prev_state;
+ 
+-	do_page_fault_cycles = perf_event_create_kernel_counter(&vma_attr, -1, tsk, NULL, NULL);
++	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
+ 
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+     }
++    else {
++        printk("do_page_fault perf counter error: 1");
++    }
+     address = read_cr2(); /* Get the faulting address */
+ 
+ 	/*
+@@ -1386,6 +1397,9 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+             tsk->soft_page_fault_cycles += do_page_fault_total;
+         }
+ 	}
++    else {
++        printk("do_page_fault perf counter error: 1");
++    }
+ }
+ NOKPROBE_SYMBOL(do_page_fault);
+ 
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 68dccd9..130434a 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -585,7 +585,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+         uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
+         find_vma_cycles = task->find_vma_cycles;
+         handle_mm_fault_cycles = task->handle_mm_fault_cycles;
+-        soft_page_fault_cycles += task->soft_page_fault_cycles;
++        soft_page_fault_cycles = task->soft_page_fault_cycles;
+         vma_in_cache = task->vma_in_cache;
+     }
+ 
+-- 
+2.1.4
+

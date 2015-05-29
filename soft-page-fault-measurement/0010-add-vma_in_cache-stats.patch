@@ -1,0 +1,91 @@
+From 2cfde328edce78ded79c3f47114ca6c4cd7566c1 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Thu, 23 Oct 2014 17:56:28 -0400
+Subject: [PATCH 10/33] add vma_in_cache stats
+
+---
+ arch/x86/mm/fault.c   | 6 ++++++
+ fs/proc/array.c       | 1 +
+ include/linux/sched.h | 5 +++--
+ kernel/fork.c         | 2 ++
+ 4 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index ed81fac..1f21c49 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1060,6 +1060,7 @@ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+ 
+ 	struct perf_event *vma_cycles;
+ 	unsigned long vma_start, vma_total = 0;
++    int vma_incache = 0;
+     u64 enabled, running;
+ 	/*unsigned long handle_mm_start, handle_mm_total = 0;*/
+ 
+@@ -1198,6 +1199,10 @@ retry:
+ 
+ 	    vma = find_vma(mm, address);
+ 
++        if (vmacache_find(mm, address)) {
++            vma_incache = 1;
++        }
++
+ 	    vma_total = perf_event_read_value(vma_cycles, &enabled, &running) -
+                     vma_start;
+ 	    perf_event_disable(vma_cycles);
+@@ -1289,6 +1294,7 @@ good_area:
+             else {
+ 			    tsk->uncounted_min_flt++;
+             }
++            tsk->vma_in_cache += vma_incache;
+ 		}
+ 		if (fault & VM_FAULT_RETRY) {
+ 			/* Clear FAULT_FLAG_ALLOW_RETRY to avoid any risk
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 1fd0d8e..ecb3e3b 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -545,6 +545,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     seq_put_decimal_ull(m, ' ', task->uncounted_min_flt);
+     seq_put_decimal_ull(m, ' ', task->find_vma_cycles);
+     seq_put_decimal_ull(m, ' ', task->handle_mm_fault_cycles);
++    seq_put_decimal_ull(m, ' ', task->vma_in_cache);
+ 	seq_putc(m, '\n');
+ 	return 0;
+ }
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 6c354f2..5b0729a 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -1367,12 +1367,13 @@ struct task_struct {
+ 	u64 real_start_time;	/* boot based time in nsec */
+ /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
+ 	unsigned long min_flt, maj_flt;
+-	/* 
+-	 * two categories of soft(minor) page faults, we only count those not being 
++	/*
++	 * two categories of soft(minor) page faults, we only count those not being
+ 	 * interrupted by other events like timer interrupt
+ 	 */
+ 	unsigned long counted_min_flt, uncounted_min_flt;
+ 	unsigned long find_vma_cycles, handle_mm_fault_cycles;
++    unsigned long vma_in_cache;
+ 
+ 	struct task_cputime cputime_expires;
+ 	struct list_head cpu_timers[3];
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 84f9af5..5edb699 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -885,6 +885,8 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+ 	tsk->min_flt = tsk->maj_flt = 0;
+     tsk->counted_min_flt = tsk->uncounted_min_flt = 0;
+     tsk->find_vma_cycles = tsk->handle_mm_fault_cycles = 0;
++    tsk->vma_in_cache = 0;
++
+ 	tsk->nvcsw = tsk->nivcsw = 0;
+ #ifdef CONFIG_DETECT_HUNG_TASK
+ 	tsk->last_switch_count = tsk->nvcsw + tsk->nivcsw;
+-- 
+2.1.4
+

@@ -1,0 +1,191 @@
+From c147d5e636fb287bbb04ee7d2a53caf087781384 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Mon, 3 Nov 2014 15:22:36 -0500
+Subject: [PATCH 19/33] add soft page fault cycles
+
+---
+ arch/x86/mm/fault.c   | 36 ++++++++++++++++++++++++++++++++----
+ fs/proc/array.c       |  7 ++++++-
+ include/linux/sched.h |  4 ++--
+ kernel/exit.c         |  1 +
+ kernel/fork.c         |  3 ++-
+ 5 files changed, 43 insertions(+), 8 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index 81ed3dc..49cbd1c 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1058,7 +1058,7 @@ static struct perf_event_attr handle_mm_attr = {
+  */
+ static noinline void
+ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+-		unsigned long address)
++		unsigned long address, int *is_soft_page_fault)
+ {
+ 	struct vm_area_struct *vma;
+ 	struct task_struct *tsk;
+@@ -1316,6 +1316,7 @@ good_area:
+ 		        tsk->find_vma_cycles += vma_total;
+                 tsk->handle_mm_fault_cycles += handle_mm_total;
+ 			    tsk->counted_min_flt++;
++                *is_soft_page_fault = 1;
+             }
+             else {
+                 if (vma_total == 0){
+@@ -1345,9 +1346,22 @@ NOKPROBE_SYMBOL(__do_page_fault);
+ dotraplinkage void notrace
+ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+-	unsigned long address = read_cr2(); /* Get the faulting address */
++	struct perf_event *do_page_fault_cycles;
++	unsigned long do_page_fault_start, do_page_fault_total = 0;
++	struct task_struct *tsk = current;
++    u64 enabled, running;
++    int is_soft_page_fault = 0;
++	unsigned long address;
+ 	enum ctx_state prev_state;
+ 
++	do_page_fault_cycles = perf_event_create_kernel_counter(&vma_attr, -1, tsk, NULL, NULL);
++
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    perf_event_enable(do_page_fault_cycles);
++	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
++    }
++    address = read_cr2(); /* Get the faulting address */
++
+ 	/*
+ 	 * We must have this function tagged with __kprobes, notrace and call
+ 	 * read_cr2() before calling anything else. To avoid calling any kind
+@@ -1357,8 +1371,21 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	 */
+ 
+ 	prev_state = exception_enter();
+-	__do_page_fault(regs, error_code, address);
++	__do_page_fault(regs, error_code, address, &is_soft_page_fault);
+ 	exception_exit(prev_state);
++
++
++	if (!IS_ERR(do_page_fault_cycles)) {
++	    do_page_fault_total = perf_event_read_value(do_page_fault_cycles, &enabled, &running) -
++                    do_page_fault_start;
++	    perf_event_disable(do_page_fault_cycles);
++        perf_event_release_kernel(do_page_fault_cycles);
++        do_page_fault_cycles = NULL;
++
++        if (is_soft_page_fault) {
++            tsk->soft_page_fault_cycles += do_page_fault_total;
++        }
++	}
+ }
+ NOKPROBE_SYMBOL(do_page_fault);
+ 
+@@ -1384,10 +1411,11 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	 */
+ 	unsigned long address = read_cr2();
+ 	enum ctx_state prev_state;
++    int dummy_soft_page_fault = 0;
+ 
+ 	prev_state = exception_enter();
+ 	trace_page_fault_entries(address, regs, error_code);
+-	__do_page_fault(regs, error_code, address);
++	__do_page_fault(regs, error_code, address, &dummy_soft_page_fault);
+ 	exception_exit(prev_state);
+ }
+ NOKPROBE_SYMBOL(trace_do_page_fault);
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 719153e..68dccd9 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -544,7 +544,8 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+ 	unsigned long min_flt = 0;
+ 	unsigned long counted_min_flt = 0, uncounted_min_flt_vma = 0,
+                   uncounted_min_flt_handl_mm_fault = 0;
+-    unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0;
++    unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0,
++                  soft_page_fault_cycles = 0;
+     unsigned long vma_in_cache = 0;
+ 	unsigned long flags;
+ 
+@@ -559,6 +560,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+                 uncounted_min_flt_handl_mm_fault += t->uncounted_min_flt_handl_mm_fault;
+                 find_vma_cycles += t->find_vma_cycles;
+                 handle_mm_fault_cycles += t->handle_mm_fault_cycles;
++                soft_page_fault_cycles += t->soft_page_fault_cycles;
+                 vma_in_cache += t->vma_in_cache;
+             } while_each_thread(task, t);
+ 
+@@ -568,6 +570,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+             uncounted_min_flt_handl_mm_fault += sig->uncounted_min_flt_handl_mm_fault;
+             find_vma_cycles += sig->find_vma_cycles;
+             handle_mm_fault_cycles += sig->handle_mm_fault_cycles;
++            soft_page_fault_cycles += sig->soft_page_fault_cycles;
+             vma_in_cache += sig->vma_in_cache;
+ 
+         }
+@@ -582,6 +585,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+         uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
+         find_vma_cycles = task->find_vma_cycles;
+         handle_mm_fault_cycles = task->handle_mm_fault_cycles;
++        soft_page_fault_cycles += task->soft_page_fault_cycles;
+         vma_in_cache = task->vma_in_cache;
+     }
+ 
+@@ -592,6 +596,7 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     seq_put_decimal_ull(m, ' ', find_vma_cycles);
+     seq_put_decimal_ull(m, ' ', handle_mm_fault_cycles);
+     seq_put_decimal_ull(m, ' ', vma_in_cache);
++    seq_put_decimal_ull(m, ' ', soft_page_fault_cycles);
+     seq_put_decimal_ull(m, ' ', whole);
+ 	seq_putc(m, '\n');
+ 
+diff --git a/include/linux/sched.h b/include/linux/sched.h
+index 84e83ac..b783bf0 100644
+--- a/include/linux/sched.h
++++ b/include/linux/sched.h
+@@ -656,7 +656,7 @@ struct signal_struct {
+ 
+ 	unsigned long counted_min_flt;
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+-	unsigned long find_vma_cycles, handle_mm_fault_cycles;
++	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	unsigned long inblock, oublock, cinblock, coublock;
+@@ -1379,7 +1379,7 @@ struct task_struct {
+ 	 */
+ 	unsigned long counted_min_flt;
+     unsigned long uncounted_min_flt_vma, uncounted_min_flt_handl_mm_fault;
+-	unsigned long find_vma_cycles, handle_mm_fault_cycles;
++	unsigned long find_vma_cycles, handle_mm_fault_cycles, soft_page_fault_cycles;
+     unsigned long vma_in_cache;
+ 
+ 	struct task_cputime cputime_expires;
+diff --git a/kernel/exit.c b/kernel/exit.c
+index 8595721..06139c9 100644
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -145,6 +145,7 @@ static void __exit_signal(struct task_struct *tsk)
+              tsk->uncounted_min_flt_handl_mm_fault;
+         sig->find_vma_cycles += tsk->find_vma_cycles;
+         sig->handle_mm_fault_cycles += tsk->handle_mm_fault_cycles;
++        sig->soft_page_fault_cycles += tsk->soft_page_fault_cycles;
+         sig->vma_in_cache += tsk->vma_in_cache;
+ 
+ 	}
+diff --git a/kernel/fork.c b/kernel/fork.c
+index 618df95..4c2acee 100644
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -885,7 +885,8 @@ static int copy_mm(unsigned long clone_flags, struct task_struct *tsk)
+ 	tsk->min_flt = tsk->maj_flt = 0;
+     tsk->counted_min_flt = tsk->uncounted_min_flt_vma
+                          = tsk->uncounted_min_flt_handl_mm_fault = 0;
+-    tsk->find_vma_cycles = tsk->handle_mm_fault_cycles = 0;
++    tsk->find_vma_cycles = tsk->handle_mm_fault_cycles
++                         = tsk->soft_page_fault_cycles = 0;
+     tsk->vma_in_cache = 0;
+ 
+ 	tsk->nvcsw = tsk->nivcsw = 0;
+-- 
+2.1.4
+

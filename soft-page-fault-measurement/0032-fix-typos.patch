@@ -1,0 +1,34 @@
+From e70306b3597d844242498d09435544ea45a4d039 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Wed, 19 Nov 2014 19:27:48 -0500
+Subject: [PATCH 32/33] fix typos
+
+---
+ arch/x86/mm/fault.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index eb23931..f369fa9 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -1453,7 +1453,7 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	    start2 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+ 	    end = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+     }
+-    tsk->open_close_perf_cycles += start2 - start1 - (end - start2)
++    tsk->open_close_perf_cycles += start2 - start1 - (end - start2);
+     tsk->read_perf_cycles += end - start2;
+ 
+     /*if (!IS_ERR(do_page_fault_event)) {*/
+@@ -1545,7 +1545,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	    start2 = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+ 	    end = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+     }
+-    tsk->open_close_perf_cycles += start2 - start1 - (end - start2)
++    tsk->open_close_perf_cycles += start2 - start1 - (end - start2);
+     tsk->read_perf_cycles += end - start2;
+ 
+ 	prev_state = exception_enter();
+-- 
+2.1.4
+

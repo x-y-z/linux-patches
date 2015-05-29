@@ -1,0 +1,129 @@
+From 6ad28fd67da108afe0655d5299c45ad5952a2fc3 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Sun, 26 Oct 2014 10:30:35 -0400
+Subject: [PATCH 15/33] distinguish tgid and tid case for soft page fault stats
+
+---
+ fs/proc/array.c    | 44 +++++++++++++++++++++++++++++++++-----------
+ fs/proc/base.c     |  6 +++---
+ fs/proc/internal.h |  6 ++++--
+ 3 files changed, 40 insertions(+), 16 deletions(-)
+
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index a4c3a08..b9d8549 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -540,27 +540,49 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+ 			struct pid_namespace *ns, struct pid *pid,
+ 			struct task_struct *task, int whole)
+ {
+-    seq_put_decimal_ull(m, ' ', task->min_flt);
+-    seq_put_decimal_ull(m, ' ', task->counted_min_flt);
+-    seq_put_decimal_ull(m, ' ', task->uncounted_min_flt_vma);
+-    seq_put_decimal_ull(m, ' ', task->uncounted_min_flt_handl_mm_fault);
+-    seq_put_decimal_ull(m, ' ', task->find_vma_cycles);
+-    seq_put_decimal_ull(m, ' ', task->handle_mm_fault_cycles);
+-    seq_put_decimal_ull(m, ' ', task->vma_in_cache);
++
++	unsigned long min_flt = 0;
++	unsigned long counted_min_flt = 0, uncounted_min_flt_vma = 0,
++                  uncounted_min_flt_handl_mm_fault = 0;
++    unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0;
++    unsigned long vma_in_cache = 0;
++
++    min_flt = task->min_flt;
++    counted_min_flt = task->counted_min_flt;
++    uncounted_min_flt_vma = task->uncounted_min_flt_vma;
++    uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
++    find_vma_cycles = task->find_vma_cycles;
++    handle_mm_fault_cycles = task->handle_mm_fault_cycles;
++    vma_in_cache = task->vma_in_cache;
++
++    seq_put_decimal_ull(m, ' ', min_flt);
++    seq_put_decimal_ull(m, ' ', counted_min_flt);
++    seq_put_decimal_ull(m, ' ', uncounted_min_flt_vma);
++    seq_put_decimal_ull(m, ' ', uncounted_min_flt_handl_mm_fault);
++    seq_put_decimal_ull(m, ' ', find_vma_cycles);
++    seq_put_decimal_ull(m, ' ', handle_mm_fault_cycles);
++    seq_put_decimal_ull(m, ' ', vma_in_cache);
+ 	seq_putc(m, '\n');
+ 	return 0;
+ }
+ 
+-int proc_tid_stat(struct seq_file *m, struct pid_namespace *ns,
++
++int proc_tid_soft_page_fault_stats(struct seq_file *m, struct pid_namespace *ns,
+ 			struct pid *pid, struct task_struct *task)
+ {
+-	return do_task_stat(m, ns, pid, task, 0);
++	return do_task_soft_page_fault_stats(m, ns, pid, task, 0);
+ }
+ 
+-int proc_tid_soft_page_fault_stats(struct seq_file *m, struct pid_namespace *ns,
++int proc_tgid_soft_page_fault_stats(struct seq_file *m, struct pid_namespace *ns,
+ 			struct pid *pid, struct task_struct *task)
+ {
+-	return do_task_soft_page_fault_stats(m, ns, pid, task, 0);
++	return do_task_soft_page_fault_stats(m, ns, pid, task, 1);
++}
++
++int proc_tid_stat(struct seq_file *m, struct pid_namespace *ns,
++			struct pid *pid, struct task_struct *task)
++{
++	return do_task_stat(m, ns, pid, task, 0);
+ }
+ 
+ int proc_tgid_stat(struct seq_file *m, struct pid_namespace *ns,
+diff --git a/fs/proc/base.c b/fs/proc/base.c
+index 0210d70..e8cd7f2 100644
+--- a/fs/proc/base.c
++++ b/fs/proc/base.c
+@@ -2100,7 +2100,7 @@ out:
+ 	return -ENOENT;
+ }
+ 
+-static struct dentry *proc_pident_lookup(struct inode *dir, 
++static struct dentry *proc_pident_lookup(struct inode *dir,
+ 					 struct dentry *dentry,
+ 					 const struct pid_entry *ents,
+ 					 unsigned int nents)
+@@ -2245,7 +2245,7 @@ static const struct pid_entry attr_dir_stuff[] = {
+ 
+ static int proc_attr_dir_readdir(struct file *file, struct dir_context *ctx)
+ {
+-	return proc_pident_readdir(file, ctx, 
++	return proc_pident_readdir(file, ctx,
+ 				   attr_dir_stuff, ARRAY_SIZE(attr_dir_stuff));
+ }
+ 
+@@ -2540,7 +2540,7 @@ static const struct pid_entry tgid_base_stuff[] = {
+ #endif
+ 	ONE("cmdline",    S_IRUGO, proc_pid_cmdline),
+ 	ONE("stat",       S_IRUGO, proc_tgid_stat),
+-	ONE("soft_page_fault_stats", S_IRUGO, proc_tid_soft_page_fault_stats),
++	ONE("soft_page_fault_stats", S_IRUGO, proc_tgid_soft_page_fault_stats),
+ 	ONE("statm",      S_IRUGO, proc_pid_statm),
+ 	REG("maps",       S_IRUGO, proc_pid_maps_operations),
+ #ifdef CONFIG_NUMA
+diff --git a/fs/proc/internal.h b/fs/proc/internal.h
+index 2516105..79209f4 100644
+--- a/fs/proc/internal.h
++++ b/fs/proc/internal.h
+@@ -148,10 +148,12 @@ extern const struct file_operations proc_tid_children_operations;
+ 
+ extern int proc_tid_stat(struct seq_file *, struct pid_namespace *,
+ 			 struct pid *, struct task_struct *);
+-extern int proc_tid_soft_page_fault_stats(struct seq_file *, struct pid_namespace *,
+-			 struct pid *, struct task_struct *);
+ extern int proc_tgid_stat(struct seq_file *, struct pid_namespace *,
+ 			  struct pid *, struct task_struct *);
++extern int proc_tid_soft_page_fault_stats(struct seq_file *, struct pid_namespace *,
++			 struct pid *, struct task_struct *);
++extern int proc_tgid_soft_page_fault_stats(struct seq_file *, struct pid_namespace *,
++			 struct pid *, struct task_struct *);
+ extern int proc_pid_status(struct seq_file *, struct pid_namespace *,
+ 			   struct pid *, struct task_struct *);
+ extern int proc_pid_statm(struct seq_file *, struct pid_namespace *,
+-- 
+2.1.4
+

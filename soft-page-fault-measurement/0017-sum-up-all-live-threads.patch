@@ -1,0 +1,51 @@
+From 9a9795d5f6be5a8a7b66aee6dbb670456bda4269 Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Sun, 26 Oct 2014 11:18:20 -0400
+Subject: [PATCH 17/33] sum up all live threads
+
+---
+ fs/proc/array.c | 28 +++++++++++++++++++++-------
+ 1 file changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/fs/proc/array.c b/fs/proc/array.c
+index 8e0afc9..eed7fc3 100644
+--- a/fs/proc/array.c
++++ b/fs/proc/array.c
+@@ -547,13 +547,27 @@ static int do_task_soft_page_fault_stats(struct seq_file *m,
+     unsigned long find_vma_cycles = 0, handle_mm_fault_cycles = 0;
+     unsigned long vma_in_cache = 0;
+ 
+-    min_flt = task->min_flt;
+-    counted_min_flt = task->counted_min_flt;
+-    uncounted_min_flt_vma = task->uncounted_min_flt_vma;
+-    uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
+-    find_vma_cycles = task->find_vma_cycles;
+-    handle_mm_fault_cycles = task->handle_mm_fault_cycles;
+-    vma_in_cache = task->vma_in_cache;
++    if (whole) {
++        struct task_struct *t = task;
++        do {
++            min_flt += task->min_flt;
++            counted_min_flt += task->counted_min_flt;
++            uncounted_min_flt_vma += task->uncounted_min_flt_vma;
++            uncounted_min_flt_handl_mm_fault += task->uncounted_min_flt_handl_mm_fault;
++            find_vma_cycles += task->find_vma_cycles;
++            handle_mm_fault_cycles += task->handle_mm_fault_cycles;
++            vma_in_cache += task->vma_in_cache;
++        } while_each_thread(task, t);
++    }
++    else {
++        min_flt = task->min_flt;
++        counted_min_flt = task->counted_min_flt;
++        uncounted_min_flt_vma = task->uncounted_min_flt_vma;
++        uncounted_min_flt_handl_mm_fault = task->uncounted_min_flt_handl_mm_fault;
++        find_vma_cycles = task->find_vma_cycles;
++        handle_mm_fault_cycles = task->handle_mm_fault_cycles;
++        vma_in_cache = task->vma_in_cache;
++    }
+ 
+     seq_put_decimal_ull(m, ' ', min_flt);
+     seq_put_decimal_ull(m, ' ', counted_min_flt);
+-- 
+2.1.4
+

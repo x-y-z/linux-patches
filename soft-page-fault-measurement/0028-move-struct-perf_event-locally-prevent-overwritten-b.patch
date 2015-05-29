@@ -1,0 +1,98 @@
+From 069ee77af1172e986858327724b599f1c0b4b44f Mon Sep 17 00:00:00 2001
+From: Zi Yan <zi.yan@cs.rutgers.edu>
+Date: Wed, 5 Nov 2014 08:33:45 -0500
+Subject: [PATCH 28/33] move struct perf_event locally, prevent overwritten by
+ multiple enter do_page_fault function
+
+---
+ arch/x86/mm/fault.c | 24 ++++++++++++++++++------
+ 1 file changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/arch/x86/mm/fault.c b/arch/x86/mm/fault.c
+index ad93be9..7981f76 100644
+--- a/arch/x86/mm/fault.c
++++ b/arch/x86/mm/fault.c
+@@ -43,8 +43,6 @@ enum x86_pf_error_code {
+ 	PF_INSTR	=		1 << 4,
+ };
+ 
+-static struct perf_event *do_page_fault_cycles = NULL;
+-static struct perf_event *do_page_fault_event = NULL;
+ /*
+  * Returns 0 if mmiotrace is disabled, or if the fault is not
+  * handled by mmiotrace:
+@@ -1075,7 +1073,8 @@ static struct perf_event_attr in_do_page_fault_attr = {
+  */
+ static noinline void
+ __do_page_fault(struct pt_regs *regs, unsigned long error_code,
+-		unsigned long address, int *is_soft_page_fault)
++		unsigned long address,
++        struct perf_event *do_page_fault_event, int *is_soft_page_fault)
+ {
+ 	struct vm_area_struct *vma;
+ 	struct task_struct *tsk;
+@@ -1423,7 +1422,8 @@ NOKPROBE_SYMBOL(__do_page_fault);
+ dotraplinkage void notrace
+ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
+-	struct perf_event *do_page_fault_cycles;
++	struct perf_event *do_page_fault_cycles = NULL;
++    struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+@@ -1432,7 +1432,12 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	enum ctx_state prev_state;
+ 
+ 	do_page_fault_cycles = perf_event_create_kernel_counter(&do_page_fault_attr, -1, tsk, NULL, NULL);
++    do_page_fault_event = perf_event_create_kernel_counter(&in_do_page_fault_attr,
++                                         -1, tsk, NULL, NULL);
+ 
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_enable(do_page_fault_event);
++    }
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+ 	    perf_event_enable(do_page_fault_cycles);
+ 	    do_page_fault_start = perf_event_read_value(do_page_fault_cycles, &enabled, &running);
+@@ -1451,7 +1456,7 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ 	 */
+ 
+ 	prev_state = exception_enter();
+-	__do_page_fault(regs, error_code, address, &is_soft_page_fault);
++	__do_page_fault(regs, error_code, address, do_page_fault_event, &is_soft_page_fault);
+ 	exception_exit(prev_state);
+ 
+ 
+@@ -1469,6 +1474,11 @@ do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     else {
+         printk("do_page_fault perf counter error: 1");
+     }
++    if (!IS_ERR(do_page_fault_event)) {
++        perf_event_disable(do_page_fault_event);
++        perf_event_release_kernel(do_page_fault_event);
++        do_page_fault_event = NULL;
++    }
+ }
+ NOKPROBE_SYMBOL(do_page_fault);
+ 
+@@ -1486,6 +1496,8 @@ trace_page_fault_entries(unsigned long address, struct pt_regs *regs,
+ dotraplinkage void notrace
+ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+ {
++    struct perf_event *do_page_fault_cycles = NULL;
++    struct perf_event *do_page_fault_event = NULL;
+ 	unsigned long do_page_fault_start, do_page_fault_total = 0;
+ 	struct task_struct *tsk = current;
+     u64 enabled, running;
+@@ -1518,7 +1530,7 @@ trace_do_page_fault(struct pt_regs *regs, unsigned long error_code)
+     }
+ 
+ 
+-	__do_page_fault(regs, error_code, address, &is_soft_page_fault);
++	__do_page_fault(regs, error_code, address, do_page_fault_event, &is_soft_page_fault);
+ 
+ 
+ 	if (!IS_ERR(do_page_fault_cycles)) {
+-- 
+2.1.4
+
